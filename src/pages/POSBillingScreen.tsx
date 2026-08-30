@@ -64,14 +64,16 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
     };
   }, []);
 
-  // Fetch branch-scoped menu whenever activeBranchId changes
+  // Realtime product listener + initial server fetch
   useEffect(() => {
+    let isSubscribed = true;
+
     const fetchBranchMenu = async () => {
       try {
         const res = await fetchPOSApi(`/api/pos/menu?branchId=${activeBranchId}&franchiseId=${activeFranchiseId}`);
         if (res.ok) {
           const data = await res.json();
-          if (data.items && Array.isArray(data.items) && data.items.length > 0) {
+          if (isSubscribed && data.items && Array.isArray(data.items) && data.items.length > 0) {
             setProducts(data.items);
             return;
           }
@@ -79,10 +81,56 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
       } catch (err) {
         console.warn('Could not fetch server branch menu, falling back to local list:', err);
       }
-      setProducts(FALLBACK_PRODUCTS);
     };
 
     fetchBranchMenu();
+
+    // Firestore real-time listener for instant product & availability sync
+    let unsubscribe: (() => void) | undefined;
+    import('../lib/firebase').then(({ db }) => {
+      import('firebase/firestore').then(({ collection, onSnapshot }) => {
+        if (!isSubscribed) return;
+        unsubscribe = onSnapshot(collection(db, 'products'), (snap) => {
+          if (!snap.empty) {
+            const liveItems: POSProduct[] = snap.docs
+              .map((doc) => {
+                const d = doc.data();
+                const pPrice = Number(d.price ?? d.basePrice) || 0;
+                const channels = d.channelAvailability || { online: true, dineIn: true, takeaway: true, posDelivery: true };
+                // Check if enabled for POS (dineIn, takeaway, or posDelivery)
+                const isPosEnabled = channels.dineIn !== false || channels.takeaway !== false || channels.posDelivery !== false;
+                if (d.isActive === false || d.isAvailable === false || !isPosEnabled) return null;
+                return {
+                  id: doc.id,
+                  name: d.productName || d.name || 'Menu Item',
+                  category: d.category || 'Veg Pizzas',
+                  price: pPrice,
+                  basePrice: pPrice,
+                  isVegetarian: d.isVegetarian ?? true,
+                  isAvailable: d.isAvailable ?? true,
+                  imageUrl: d.imageUrl || d.image || '',
+                  description: d.description || '',
+                  variants: d.variants,
+                  crusts: d.crusts,
+                  addons: d.addons,
+                } as POSProduct;
+              })
+              .filter(Boolean) as POSProduct[];
+
+            if (liveItems.length > 0 && isSubscribed) {
+              setProducts(liveItems);
+            }
+          }
+        }, (err) => {
+          console.warn('[POS] Firestore products realtime fallback:', err);
+        });
+      });
+    });
+
+    return () => {
+      isSubscribed = false;
+      if (unsubscribe) unsubscribe();
+    };
   }, [activeBranchId, activeFranchiseId]);
 
   // Global Keyboard Shortcuts

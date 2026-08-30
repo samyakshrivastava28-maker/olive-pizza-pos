@@ -1,6 +1,6 @@
 import { auth } from './firebase';
 
-export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'https://olivepizza-owner.onrender.com';
 
 export async function fetchPOSApi(endpoint: string, options: RequestInit = {}): Promise<Response> {
   const token = await auth.currentUser?.getIdToken();
