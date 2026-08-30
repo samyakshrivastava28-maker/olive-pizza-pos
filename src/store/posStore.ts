@@ -1,12 +1,20 @@
 import { create } from 'zustand';
+import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
 import { POSCartItem, OrderSourceType, POSTerminalSession, POSCompletedBill, POSCustomerProfile, HeldBill, BranchOption } from '../types/pos';
 
 export type CustomerLookupStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NOT_FOUND' | 'ERROR';
 
 interface POSState {
-  // Session & Branch Context
+  // Session & Auth State
+  user: User | null;
   session: POSTerminalSession | null;
+  isAuthChecking: boolean;
+  isAuthorized: boolean;
   setSession: (session: POSTerminalSession | null) => void;
+  initAuth: () => () => void;
+  logout: () => Promise<void>;
   isOwner: boolean;
   setIsOwner: (isOwner: boolean) => void;
   availableBranches: BranchOption[];
@@ -114,13 +122,131 @@ export const getPOSCalculations = (state: { items: POSCartItem[]; discountAmount
 };
 
 export const usePOSStore = create<POSState>((set, get) => ({
+  user: null,
   session: null,
+  isAuthChecking: true,
+  isAuthorized: false,
   setSession: (session) => set({ 
     session,
+    isAuthorized: !!session,
     activeBranchId: session?.branchId || localStorage.getItem('pos_branch_id') || 'main_branch',
     activeFranchiseId: session?.franchiseId || 'fra_primary',
     isOwner: session?.role === 'owner' || session?.isOwnerMode || false
   }),
+
+  initAuth: () => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        set({
+          user: null,
+          session: null,
+          isAuthChecking: false,
+          isAuthorized: false
+        });
+        return;
+      }
+
+      try {
+        const emailLower = (firebaseUser.email || '').toLowerCase().trim();
+        const isMasterOwner = emailLower === 'olivepizzarjn@gmail.com' || emailLower === 'webhub2811@gmail.com' || emailLower === 'olivepizzamaker@gmail.com';
+
+        let role = isMasterOwner ? 'owner' : 'cashier';
+        let branchId = localStorage.getItem('pos_branch_id') || 'main_branch';
+        let branchName = branchId === 'main_branch' ? 'Olive Pizza — Rajnandgaon (HQ)' : 'Olive Pizza Branch';
+        let franchiseId = 'fra_primary';
+        let terminalId = localStorage.getItem('pos_terminal_id') || 'pos_term_01';
+        let isAuthorized = isMasterOwner;
+
+        // 1. Direct Firestore user doc lookup
+        try {
+          const userDocSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDocSnap.exists()) {
+            const data = userDocSnap.data();
+            role = data.role || role;
+            if (data.branchId) branchId = data.branchId;
+            if (data.branchName) branchName = data.branchName;
+            if (data.franchiseId) franchiseId = data.franchiseId;
+            const ALLOWED_STAFF_ROLES = ['owner', 'admin', 'developer', 'cashier', 'manager', 'restaurant_manager', 'franchise_owner', 'staff'];
+            if (ALLOWED_STAFF_ROLES.includes(data.role)) {
+              isAuthorized = true;
+            }
+          }
+        } catch (e) {
+          console.warn('[POSStore] User doc lookup notice:', e);
+        }
+
+        // 2. Direct pos_terminals doc lookup
+        if (!isAuthorized) {
+          try {
+            const termDocSnap = await getDoc(doc(db, 'pos_terminals', terminalId));
+            if (termDocSnap.exists()) {
+              const termData = termDocSnap.data();
+              if (termData.status === 'ACTIVE' || termData.isActive) {
+                isAuthorized = true;
+              }
+            }
+          } catch (e) {
+            console.warn('[POSStore] Terminal doc lookup notice:', e);
+          }
+        }
+
+        if (isAuthorized) {
+          const newSession: POSTerminalSession = {
+            cashierName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Staff Member',
+            cashierUid: firebaseUser.uid,
+            terminalId,
+            branchId,
+            branchName,
+            franchiseId,
+            organizationId: 'org_olive_pizza',
+            role: role as any,
+            isOwnerMode: isMasterOwner || role === 'owner'
+          };
+          set({
+            user: firebaseUser,
+            session: newSession,
+            isAuthChecking: false,
+            isAuthorized: true,
+            isOwner: isMasterOwner || role === 'owner',
+            activeBranchId: branchId,
+            activeFranchiseId: franchiseId
+          });
+        } else {
+          set({
+            user: firebaseUser,
+            session: null,
+            isAuthChecking: false,
+            isAuthorized: false
+          });
+        }
+      } catch (err) {
+        console.error('[POSStore] Auth init error:', err);
+        set({
+          user: firebaseUser,
+          session: null,
+          isAuthChecking: false,
+          isAuthorized: false
+        });
+      }
+    });
+
+    return () => unsubscribe();
+  },
+
+  logout: async () => {
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.warn('[POSStore] Logout error:', e);
+    }
+    set({
+      user: null,
+      session: null,
+      isAuthChecking: false,
+      isAuthorized: false
+    });
+  },
+
   isOwner: false,
   setIsOwner: (isOwner) => set({ isOwner }),
   availableBranches: [

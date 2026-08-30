@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { usePOSStore } from './store/posStore';
@@ -8,33 +8,26 @@ import { POSLoginPage } from './pages/POSLoginPage';
 import { POSTerminalActivationPage } from './pages/POSTerminalActivationPage';
 
 export function App() {
-  const { session, setSession } = usePOSStore();
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const { session, isAuthChecking, isAuthorized, initAuth, logout } = usePOSStore();
 
   useEffect(() => {
-    const termId = localStorage.getItem('pos_terminal_id');
-    const branchId = localStorage.getItem('pos_branch_id');
-    if (termId && branchId && !session) {
-      setSession({
-        cashierName: 'Cashier Staff',
-        cashierUid: 'pos_cashier_01',
-        terminalId: termId,
-        branchId: branchId,
-        branchName: branchId === 'main_branch' ? 'Olive Pizza — Rajnandgaon (HQ)' : 'Olive Pizza Branch',
-        franchiseId: 'fra_primary',
-        organizationId: 'org_olive_pizza',
-      });
-      setIsAuthenticated(true);
-    } else if (session) {
-      setIsAuthenticated(true);
-    }
-  }, [session, setSession]);
+    const unsub = initAuth();
+    return () => unsub();
+  }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('pos_terminal_id');
-    localStorage.removeItem('pos_branch_id');
-    setSession(null);
-    setIsAuthenticated(false);
+  if (isAuthChecking) {
+    return (
+      <div className="h-screen w-screen bg-[#090D16] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-slate-400 font-medium">Verifying POS Terminal Session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const handleLogout = async () => {
+    await logout();
   };
 
   return (
@@ -63,34 +56,34 @@ export function App() {
         <Route
           path="/login"
           element={
-            isAuthenticated ? (
+            isAuthorized && session ? (
               <Navigate to="/billing" replace />
             ) : (
-              <POSLoginPage onLoginSuccess={() => setIsAuthenticated(true)} />
+              <POSLoginPage onLoginSuccess={() => {}} />
             )
           }
         />
         <Route
           path="/billing"
           element={
-            isAuthenticated ? (
+            isAuthorized && session ? (
               <POSBillingScreen onLogout={handleLogout} />
             ) : (
-              <Navigate to="/activate" replace />
+              <Navigate to="/login" replace />
             )
           }
         />
         <Route
           path="/dashboard"
           element={
-            isAuthenticated ? (
+            isAuthorized && session ? (
               <POSDashboardPage />
             ) : (
-              <Navigate to="/activate" replace />
+              <Navigate to="/login" replace />
             )
           }
         />
-        <Route path="*" element={<Navigate to="/billing" replace />} />
+        <Route path="*" element={<Navigate to={isAuthorized && session ? "/billing" : "/login"} replace />} />
       </Routes>
     </BrowserRouter>
   );
