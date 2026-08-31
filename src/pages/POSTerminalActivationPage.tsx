@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Monitor, Key, Sparkles, ShieldCheck, ArrowRight, Store } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { fetchPOSApi } from '../lib/api';
 
 export const POSTerminalActivationPage: React.FC = () => {
   const [activationCode, setActivationCode] = useState('');
@@ -18,9 +19,8 @@ export const POSTerminalActivationPage: React.FC = () => {
 
     setIsActivating(true);
     try {
-      const res = await fetch('http://localhost:3000/api/pos/terminals/activate', {
+      const res = await fetchPOSApi('/api/pos/terminals/activate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           activationCode: code,
           deviceFingerprint: 'DESKTOP-WIN-' + Math.random().toString(36).substring(7)
