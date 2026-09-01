@@ -27,7 +27,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: OlivePizza-POS-Windows-Installer
+          name: OlivePizzaPOS-Windows-Installer
           path: dist-electron/*.exe
           retention-days: 30
       - name: Build status

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { usePOSStore } from './store/posStore';
 import { POSBillingScreen } from './pages/POSBillingScreen';
@@ -31,7 +31,7 @@ export function App() {
   };
 
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Toaster
         position="top-right"
         toastOptions={{
@@ -85,7 +85,7 @@ export function App() {
         />
         <Route path="*" element={<Navigate to={isAuthorized && session ? "/billing" : "/login"} replace />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 

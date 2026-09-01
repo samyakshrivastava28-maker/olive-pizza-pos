@@ -12,17 +12,27 @@
   ],
   "win": {
     "target": [{ "target": "nsis", "arch": ["x64"] }],
-    "icon": "electron/resources/icon.ico"
+    "artifactName": "OlivePizzaPOS-Setup.${ext}",
+    "icon": "electron/resources/icon.png"
   },
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
     "shortcutName": "Olive Pizza POS"
   },
   "mac": {
     "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+    "artifactName": "OlivePizzaPOS.${ext}",
     "category": "public.app-category.business",
-    "icon": "electron/resources/icon.icns"
+    "icon": "electron/resources/icon.png"
+  },
+  "dmg": {
+    "title": "Olive Pizza POS",
+    "contents": [
+      { "x": 130, "y": 220 },
+      { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+    ]
   }
 }

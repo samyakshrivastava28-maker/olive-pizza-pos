@@ -26,7 +26,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:
-          name: OlivePizza-POS-macOS-DMG
+          name: OlivePizzaPOS-macOS-Installer
           path: dist-electron/*.dmg
           retention-days: 14
       - name: Build status

@@ -23,6 +23,7 @@ import {
   Lock,
   Clock
 } from 'lucide-react';
+import { AppLogo } from '../components/common/AppLogo';
 import toast from 'react-hot-toast';
 
 interface POSLoginPageProps {
@@ -289,14 +290,9 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
     <div className="min-h-screen w-screen bg-[#0B0F17] flex items-center justify-center p-4 select-none">
       <div className="w-full max-w-md bg-[#0E1524] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
         {/* Brand Header */}
-        <div className="text-center space-y-1.5">
-          <div className="w-13 h-13 rounded-2xl bg-orange-600 flex items-center justify-center text-white mx-auto shadow-lg shadow-orange-600/30">
-            <Pizza className="w-7 h-7" />
-          </div>
-          <h1 className="text-xl font-black text-white tracking-wider uppercase">
-            OLIVE PIZZA POS
-          </h1>
-          <p className="text-[11px] text-slate-400 font-mono">
+        <div className="flex flex-col items-center text-center space-y-2">
+          <AppLogo variant="full" size="xl" subtitle="POS & Billing System" />
+          <p className="text-[11px] text-slate-400 font-mono pt-1">
             Terminal Access Control • Staff & Owner Authentication
           </p>
         </div>
