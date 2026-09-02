@@ -6,6 +6,7 @@ import { POSBillingScreen } from './pages/POSBillingScreen';
 import { POSDashboardPage } from './pages/POSDashboardPage';
 import { POSLoginPage } from './pages/POSLoginPage';
 import { POSTerminalActivationPage } from './pages/POSTerminalActivationPage';
+import POSPushNotificationManager from './services/POSPushNotificationManager';
 
 export function App() {
   const { session, isAuthChecking, isAuthorized, initAuth, logout } = usePOSStore();
@@ -32,6 +33,7 @@ export function App() {
 
   return (
     <HashRouter>
+      <POSPushNotificationManager />
       <Toaster
         position="top-right"
         toastOptions={{

@@ -31,10 +31,11 @@ export class OnlineOrderPrintListener {
     try {
       const res = await fetchApi('/api/pos/pending-online-prints');
       if (res && res.success && Array.isArray(res.orders)) {
-        usePOSStore.getState().setPendingOnlineOrders(res.orders);
+        const actionableOrders = res.orders.filter((o: any) => o.status !== 'cancelled' && o.status !== 'rejected');
+        usePOSStore.getState().setPendingOnlineOrders(actionableOrders);
 
         if (config.autoPrintOnline && config.isPrimaryTerminal) {
-          for (const order of res.orders) {
+          for (const order of actionableOrders) {
             await this.processSingleOrderPrint(order);
           }
         }
