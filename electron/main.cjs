@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 
 let mainWindow = null;
@@ -26,6 +26,10 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
+
+  // Strip Electron from User-Agent to prevent Google OAuth disallowed_useragent rejection
+  const currentUserAgent = mainWindow.webContents.getUserAgent();
+  mainWindow.webContents.setUserAgent(currentUserAgent.replace(/Electron\/[0-9\.]+\s/g, ''));
 
   // Handle popups: allow Google OAuth / Firebase auth popups inside Electron
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

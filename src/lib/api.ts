@@ -2,8 +2,19 @@ import { auth } from './firebase';
 
 export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'https://olivepizza-owner.onrender.com';
 
+async function getToken(): Promise<string | null> {
+  if (auth.currentUser) {
+    return auth.currentUser.getIdToken();
+  }
+  if (typeof auth.authStateReady === 'function') {
+    await auth.authStateReady();
+    return auth.currentUser?.getIdToken() || null;
+  }
+  return null;
+}
+
 export async function fetchPOSApi(endpoint: string, options: RequestInit = {}): Promise<Response> {
-  const token = await auth.currentUser?.getIdToken();
+  const token = await getToken();
   const terminalId = localStorage.getItem('pos_terminal_id') || 'pos_term_01';
   const branchId = localStorage.getItem('pos_branch_id') || 'main_branch';
 
