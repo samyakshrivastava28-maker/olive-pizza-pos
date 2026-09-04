@@ -43,8 +43,12 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ bill, onClose })
             {/* Bill Meta */}
             <div className="py-2.5 border-b border-dashed border-zinc-400 space-y-1 text-[11px]">
               <div className="flex justify-between font-bold">
-                <span>BILL: {bill.billNumber}</span>
-                <span className="uppercase">{bill.orderSource.replace('POS_', '')}</span>
+                <span>PERM BILL: #{bill.permanentBillNo ?? '—'}</span>
+                <span>DAILY ORD: {bill.dailyOrderNumber ? `#${bill.dailyOrderNumber}` : bill.billNumber}</span>
+              </div>
+              <div className="flex justify-between text-zinc-700 text-[10px] font-semibold">
+                <span>CHANNEL:</span>
+                <span className="uppercase">{bill.orderSource.replace('POS_', '').replace('_', ' ')}</span>
               </div>
               <div className="flex justify-between text-zinc-600 text-[10px]">
                 <span>DATE: {new Date(bill.createdAt).toLocaleDateString('en-IN')}</span>

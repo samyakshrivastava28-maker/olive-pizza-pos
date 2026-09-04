@@ -105,6 +105,8 @@ export interface POSPaymentDetails {
 
 export interface POSCompletedBill {
   billNumber: string;
+  permanentBillNo?: number;
+  dailyOrderNumber?: number;
   orderId: string;
   orderSource: OrderSourceType;
   tableNumber?: string;

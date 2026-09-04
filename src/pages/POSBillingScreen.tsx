@@ -5,7 +5,8 @@ import { CartPanel } from '../components/pos/CartPanel';
 import { CustomizationModal } from '../components/pos/CustomizationModal';
 import { PaymentModal } from '../components/pos/PaymentModal';
 import { ThermalReceipt } from '../components/pos/ThermalReceipt';
-import { BillHistoryDrawer } from '../components/pos/BillHistoryDrawer';
+import { AdvancedBillSearchDrawer } from '../components/pos/AdvancedBillSearchDrawer';
+import { OnlineOrdersHub } from '../components/pos/OnlineOrdersHub';
 import { AllPOSTerminalsDrawer } from '../components/pos/AllPOSTerminalsDrawer';
 import { HeldBillsModal } from '../components/pos/HeldBillsModal';
 import { usePOSStore } from '../store/posStore';
@@ -13,6 +14,7 @@ import { POSProduct, POSCompletedBill } from '../types/pos';
 import { ProductStockDrawer } from '../components/pos/ProductStockDrawer';
 import { PrinterSettingsModal } from '../components/pos/PrinterSettingsModal';
 import { PrintQueueDrawer } from '../components/pos/PrintQueueDrawer';
+import { UtensilsCrossed, Globe } from 'lucide-react';
 import { OnlineOrderPrintListener } from '../services/OnlineOrderPrintListener';
 import { OfflineBillingQueueService } from '../services/OfflineBillingQueueService';
 import { ThermalPrinterService } from '../services/ThermalPrinterService';
@@ -52,6 +54,7 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
   const [products, setProducts] = useState<POSProduct[]>(FALLBACK_PRODUCTS);
   const [selectedProduct, setSelectedProduct] = useState<POSProduct | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [billingMode, setBillingMode] = useState<'PHYSICAL' | 'ONLINE'>('PHYSICAL');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Online order live print listener & offline sync / telemetry heartbeat workers
@@ -146,6 +149,11 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
         e.preventDefault();
         resetOrder();
       }
+      // F7: Toggle Physical Counter vs Online Orders Hub
+      else if (e.key === 'F7') {
+        e.preventDefault();
+        setBillingMode(m => m === 'PHYSICAL' ? 'ONLINE' : 'PHYSICAL');
+      }
       // F8: Hold / View Held Bills
       else if (e.key === 'F8') {
         e.preventDefault();
@@ -184,15 +192,60 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
       {/* 1. Terminal Header */}
       <POSHeader onLogout={onLogout} />
 
-      {/* 2. Main Workspace: Product Grid (Left) + Current Bill Panel (Right) */}
-      <div className="flex-1 flex overflow-hidden">
-        <ProductGrid
-          products={products}
-          searchRef={searchInputRef}
-          onSelectProduct={(p) => setSelectedProduct(p)}
-        />
-        <CartPanel onOpenPayment={() => setIsPaymentOpen(true)} />
+      {/* 1.1 Mode Switcher Bar (Counter Physical vs Customer Online Orders) */}
+      <div className="h-11 bg-zinc-900 border-b border-zinc-800 px-5 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setBillingMode('PHYSICAL')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              billingMode === 'PHYSICAL'
+                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20 font-black'
+                : 'text-zinc-400 hover:text-white bg-zinc-800/60'
+            }`}
+          >
+            <UtensilsCrossed className="w-3.5 h-3.5" />
+            <span>Counter / Physical Billing</span>
+            <kbd className="hidden sm:inline-block px-1 py-0.2 bg-black/20 text-[9px] rounded font-mono">F7</kbd>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setBillingMode('ONLINE')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              billingMode === 'ONLINE'
+                ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 font-black'
+                : 'text-zinc-400 hover:text-white bg-zinc-800/60'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5 text-purple-400" />
+            <span>Customer App Online Hub</span>
+            <span className="px-1.5 py-0.2 bg-purple-500 text-white rounded-full text-[10px] font-mono font-black">
+              LIVE
+            </span>
+          </button>
+        </div>
+
+        <div className="text-[11px] text-zinc-500 flex items-center gap-3">
+          <span>Active Mode: <strong className="text-zinc-300">{billingMode === 'PHYSICAL' ? 'Physical Counter Orders' : 'Customer Online Stream'}</strong></span>
+          <span>•</span>
+          <span>Printer: <strong className="text-emerald-400 font-bold">ESC/POS Active</strong></span>
+        </div>
       </div>
+
+      {/* 2. Main Workspace: Physical Billing OR Online Orders Hub */}
+      {billingMode === 'PHYSICAL' ? (
+        <div className="flex-1 flex overflow-hidden">
+          <ProductGrid
+            products={products}
+            searchRef={searchInputRef}
+            onSelectProduct={(p) => setSelectedProduct(p)}
+          />
+          <CartPanel onOpenPayment={() => setIsPaymentOpen(true)} />
+        </div>
+      ) : (
+        <OnlineOrdersHub />
+      )}
 
       {/* 3. Product Customization Modal */}
       {selectedProduct && (
@@ -222,8 +275,8 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
         />
       )}
 
-      {/* 6. Unified Order History Drawer — Instant Reprint without duplicate transactions */}
-      <BillHistoryDrawer onReprint={(bill) => {
+      {/* 6. Advanced Bill Search Drawer — Fast Deterministic PostgreSQL queries & instant reprint */}
+      <AdvancedBillSearchDrawer onReprint={(bill) => {
         ThermalPrinterService.autoPrintCompletedBill(bill, true);
       }} />
 

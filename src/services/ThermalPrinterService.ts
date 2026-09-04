@@ -1,10 +1,13 @@
 import { PrinterConfig, PaperSize } from '../types/printer';
 import { POSCompletedBill } from '../types/pos';
+import { fetchPOSApi } from '../lib/api';
 import toast from 'react-hot-toast';
 
 export interface ReceiptRenderData {
   orderId: string;
   billNumber: string;
+  permanentBillNo?: number;
+  dailyOrderNumber?: number;
   orderSource: string;
   orderType: string;
   branchName: string;
@@ -99,6 +102,8 @@ export class ThermalPrinterService {
     return {
       orderId: bill.orderId,
       billNumber: bill.billNumber,
+      permanentBillNo: bill.permanentBillNo,
+      dailyOrderNumber: bill.dailyOrderNumber,
       orderSource: bill.orderSource,
       orderType: bill.orderSource.replace('POS_', '').replace('_', ' '),
       branchName: bill.session.branchName || 'Olive Pizza',
@@ -245,7 +250,8 @@ export class ThermalPrinterService {
           (data.gstNumber ? '<span style="font-size:9px;">GSTIN: ' + data.gstNumber + '</span>' : ''),
         '</div>',
         '<div class="border-b" style="font-size:10px;">',
-          '<div class="flex-between"><span>BILL: ' + data.billNumber + '</span><span>' + data.orderType.toUpperCase() + '</span></div>',
+          '<div class="flex-between bold" style="font-size:11px;"><span>PERM BILL: #' + (data.permanentBillNo ?? '—') + '</span><span>DAILY ORD: ' + (data.dailyOrderNumber ? '#' + data.dailyOrderNumber : data.billNumber) + '</span></div>',
+          '<div class="flex-between"><span>CHANNEL:</span><span>' + data.orderType.toUpperCase() + '</span></div>',
           '<div class="flex-between"><span>' + new Date(data.createdAt).toLocaleDateString('en-IN') + '</span><span>' + new Date(data.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + '</span></div>',
           (data.tableNumber ? '<div class="bold">TABLE: ' + data.tableNumber + '</div>' : ''),
           (data.customerName ? '<div>CUST: ' + data.customerName + (data.customerPhone ? ' (' + data.customerPhone + ')' : '') + '</div>' : ''),
@@ -327,5 +333,39 @@ export class ThermalPrinterService {
     }
     console.log('[ThermalPrinterService] Cash drawer kick pulse simulated');
     return true;
+  }
+
+  static async connectBluetoothDevice(): Promise<{ success: boolean; deviceName?: string; error?: string }> {
+    if (typeof navigator === 'undefined' || !(navigator as any).bluetooth) {
+      return { 
+        success: false, 
+        error: 'Web Bluetooth API is not supported in this browser. Please use Google Chrome or Android POS App.' 
+      };
+    }
+    try {
+      const device = await (navigator as any).bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', 'e7810a71-73ae-499d-8c15-faa9aef0c3f2', '49535343-fe7d-4ae5-8fa9-9fafd205e455']
+      });
+      return { success: true, deviceName: device.name || 'Bluetooth Printer (' + device.id.slice(0, 6) + ')' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Bluetooth connection was cancelled or failed' };
+    }
+  }
+
+  static async testNetworkPrinter(ip: string, port = 9100): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetchPOSApi('/api/pos/printer/test-network', {
+        method: 'POST',
+        body: JSON.stringify({ ip, port })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        return { success: true };
+      }
+      return { success: false, error: data.error || ('Failed to reach network printer at ' + ip + ':' + port) };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network request failed' };
+    }
   }
 }

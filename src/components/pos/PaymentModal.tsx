@@ -96,6 +96,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
     try {
       let orderId = '';
       let billNumber = '';
+      let permanentBillNo: number | undefined = undefined;
+      let dailyOrderNumber: number | undefined = undefined;
       let isOffline = false;
 
       if (!navigator.onLine) {
@@ -110,6 +112,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
           if (res.ok) {
             const resData = await res.json();
             orderId = resData.orderId || ('ord_pos_' + Date.now());
+            permanentBillNo = resData.permanentBillNo;
+            dailyOrderNumber = resData.dailyOrderNumber;
             billNumber = resData.dailyOrderNumber 
               ? `#${resData.dailyOrderNumber}` 
               : (resData.orderNumber || orderId.slice(-6).toUpperCase());
@@ -129,6 +133,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
 
       const completedBill: POSCompletedBill = {
         billNumber,
+        permanentBillNo,
+        dailyOrderNumber,
         orderId,
         orderSource,
         tableNumber: orderSource === 'POS_DINE_IN' ? tableNumber : undefined,

@@ -9,6 +9,9 @@ export interface PrinterConfig {
   isPrimaryTerminal: boolean;
   lanIp?: string;
   lanPort?: number;
+  bluetoothDeviceId?: string;
+  bluetoothDeviceName?: string;
+  autoCut?: boolean;
   drawerKickOnCash: boolean;
 }
 

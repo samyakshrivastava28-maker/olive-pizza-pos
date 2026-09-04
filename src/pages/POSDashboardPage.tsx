@@ -21,7 +21,9 @@ import {
   Lock,
   UserCheck,
   Layers,
-  ChevronRight
+  ChevronRight,
+  FileText,
+  Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { fetchPOSApi } from '../lib/api';
@@ -69,13 +71,20 @@ export function POSDashboardPage() {
   const navigate = useNavigate();
   const { session } = usePOSStore();
   
-  const [activeView, setActiveView] = useState<'terminal_bi' | 'google_sheets' | 'looker_studio'>('terminal_bi');
+  const [activeView, setActiveView] = useState<'terminal_bi' | 'google_sheets' | 'looker_studio' | 'monthly_reports'>('terminal_bi');
   const [period, setPeriod] = useState<'today' | 'yesterday' | 'this_week' | 'this_month' | 'custom'>('today');
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [hourly, setHourly] = useState<HourlyTrend | null>(null);
   const [topProducts, setTopProducts] = useState<ProductItem[]>([]);
   const [syncStatus, setSyncStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  // Monthly Reports & PDF State
+  const [selectedMonth, setSelectedMonth] = useState('2026-09');
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [generatingSheets, setGeneratingSheets] = useState(false);
+  const [sheetsResult, setSheetsResult] = useState<{ url?: string; spreadsheetId?: string } | null>(null);
+  const [monthlySummary, setMonthlySummary] = useState<any | null>(null);
 
   // Looker Studio & Google Sheets Config
   const [lookerConfig, setLookerConfig] = useState<{
@@ -99,6 +108,70 @@ export function POSDashboardPage() {
   const [adjAmount, setAdjAmount] = useState('');
   const [adjReason, setAdjReason] = useState('');
   const [submittingAdj, setSubmittingAdj] = useState(false);
+
+  const handleDownloadMonthlyPdf = async () => {
+    setDownloadingPdf(true);
+    const toastId = toast.loading('Generating official Monthly PDF report for ' + selectedMonth + '...');
+    try {
+      const [yearStr, monthStr] = selectedMonth.split('-');
+      const monthNum = parseInt(monthStr, 10);
+      const yearNum = parseInt(yearStr, 10);
+      const franchiseId = session?.franchiseId || 'fra_primary';
+
+      const res = await fetchPOSApi('/api/reports/pdf/' + monthNum + '?year=' + yearNum + '&franchiseId=' + franchiseId);
+      if (!res.ok) {
+        throw new Error('Failed to generate PDF on server');
+      }
+
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = 'OlivePizza_Report_' + selectedMonth + '.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      toast.success('Downloaded OlivePizza_Report_' + selectedMonth + '.pdf!', { id: toastId });
+    } catch (err: any) {
+      toast.error('PDF generation failed: ' + err.message, { id: toastId });
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const handleGenerateGoogleSheets = async () => {
+    setGeneratingSheets(true);
+    const toastId = toast.loading('Provisioning Google Sheets report for ' + selectedMonth + '...');
+    try {
+      const [yearStr, monthStr] = selectedMonth.split('-');
+      const monthNum = parseInt(monthStr, 10);
+      const yearNum = parseInt(yearStr, 10);
+      const franchiseId = session?.franchiseId || 'fra_primary';
+
+      const res = await fetchPOSApi('/api/reports/generate-monthly', {
+        method: 'POST',
+        body: JSON.stringify({
+          month: monthNum,
+          year: yearNum,
+          franchiseId
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSheetsResult({ url: data.spreadsheetUrl, spreadsheetId: data.spreadsheetId });
+        toast.success('Google Sheets created: ' + (data.title || 'Success'), { id: toastId });
+      } else {
+        toast.error('Sheets generation error: ' + (data.error || 'Server error'), { id: toastId });
+      }
+    } catch (err: any) {
+      toast.error('Sheets error: ' + err.message, { id: toastId });
+    } finally {
+      setGeneratingSheets(false);
+    }
+  };
 
   const loadDashboardData = async () => {
     setLoading(true);
@@ -277,6 +350,16 @@ export function POSDashboardPage() {
               }`}
             >
               <BarChart3 className="w-3.5 h-3.5" /> Looker Studio BI
+            </button>
+            <button
+              onClick={() => setActiveView('monthly_reports')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeView === 'monthly_reports'
+                  ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20 font-black'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" /> Monthly PDF & Ledger
             </button>
           </div>
 
@@ -640,6 +723,103 @@ export function POSDashboardPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* VIEW 4: MONTHLY AUDIT & MULTI-PAGE PDF REPORT */}
+        {activeView === 'monthly_reports' && (
+          <div className="space-y-6">
+            {/* Header / Month Selector Card */}
+            <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-black text-white tracking-tight">Official Monthly PDF & Google Sheets Reporting</h2>
+                    <p className="text-xs text-zinc-400">Deterministic multi-page audit report with complete bill-by-bill sales ledger</p>
+                  </div>
+                </div>
+
+                {/* Month Picker & Actions */}
+                <div className="flex items-center gap-3">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Select Month (YYYY-MM)</label>
+                    <input
+                      type="month"
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(e.target.value)}
+                      className="px-3.5 py-2 bg-zinc-950 border border-zinc-700 rounded-xl text-xs font-mono font-bold text-white focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  <div className="pt-4 flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={downloadingPdf}
+                      onClick={handleDownloadMonthlyPdf}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>{downloadingPdf ? 'Generating PDF...' : 'Download Monthly PDF'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={generatingSheets}
+                      onClick={handleGenerateGoogleSheets}
+                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 cursor-pointer disabled:opacity-50"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      <span>{generatingSheets ? 'Syncing Sheets...' : 'Provision Google Sheet'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {sheetsResult && sheetsResult.url && (
+                <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 text-emerald-300 font-medium">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>Dedicated Monthly Google Spreadsheet created with 6 structured tabs!</span>
+                  </div>
+                  <a
+                    href={sheetsResult.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1 bg-emerald-500 text-black font-bold rounded-lg text-xs hover:bg-emerald-400 transition"
+                  >
+                    Open Sheet ↗
+                  </a>
+                </div>
+              )}
+            </div>
+
+            {/* 7 Mandatory Sections Documentation Card */}
+            <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-3xl space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                Official Multi-Page PDF Specification (7 Mandatory Sections)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                {[
+                  { num: 'Section 1', title: 'Monthly Summary & KPIs', desc: 'Total bills, gross sales, discounts, refunds, taxes, net sales, AOV' },
+                  { num: 'Section 2', title: 'Complete Sales Ledger', desc: 'Every single bill in the month, date, time, customer, items, total, cashier' },
+                  { num: 'Section 3', title: 'Daily Sales Summary', desc: 'Day-by-day table for all 31 days with bills count & daily totals' },
+                  { num: 'Section 4', title: 'Payment Method Breakdown', desc: 'Cash, UPI, Card, Wallet, COD totals with transaction counts' },
+                  { num: 'Section 5', title: 'Item Sales Breakdown', desc: 'Every product sold, total quantity, and revenue generated' },
+                  { num: 'Section 6', title: 'Cancelled & Refunded Bills', desc: 'Bill #, date, customer, amount, and auditable reason' },
+                  { num: 'Section 7', title: 'Final Accounting Balance', desc: 'Gross - Discounts - Refunds = Net Sales reconciliation' },
+                  { num: 'Drive / Sheets', title: 'Google Drive Automation', desc: 'Saved under Olive Pizza Reports / [Franchise] / [Year]' },
+                ].map((sec, i) => (
+                  <div key={i} className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl space-y-1">
+                    <span className="text-[10px] font-mono font-bold text-amber-400">{sec.num}</span>
+                    <h4 className="text-xs font-bold text-white">{sec.title}</h4>
+                    <p className="text-[11px] text-zinc-400 leading-tight">{sec.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </main>
