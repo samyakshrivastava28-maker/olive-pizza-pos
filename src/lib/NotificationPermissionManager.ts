@@ -1,8 +1,5 @@
-/**
- * NotificationPermissionManager.ts
- *
- * Production-grade notification permission state machine for Olive Pizza POS.
- */
+import { PushNotifications } from '@capacitor/push-notifications';
+import { Capacitor } from '@capacitor/core';
 
 export type NotificationPermissionState =
   | 'NOT_DETERMINED'
@@ -24,13 +21,15 @@ export class NotificationPermissionManager {
     if (typeof window !== 'undefined' && (window as any).electronAPI) {
       return 'electron';
     }
-    const cap = (window as any).Capacitor;
-    if (cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()) {
-      return cap.getPlatform() === 'ios' ? 'ios' : 'android';
+    if (Capacitor.isNativePlatform()) {
+      return Capacitor.getPlatform() === 'ios' ? 'ios' : 'android';
     }
     return 'web';
   }
 
+  /**
+   * Check current authorization state without triggering OS prompts.
+   */
   static async checkPermission(): Promise<NotificationPermissionInfo> {
     const platform = this.getPlatform();
 
@@ -45,39 +44,39 @@ export class NotificationPermissionManager {
     }
 
     if (platform === 'android' || platform === 'ios') {
-      const PushNotifications = (window as any).Capacitor?.Plugins?.PushNotifications;
-      if (PushNotifications && typeof PushNotifications.checkPermissions === 'function') {
-        try {
-          const status = await PushNotifications.checkPermissions();
-          if (status.receive === 'granted') {
-            return {
-              state: 'GRANTED',
-              platform,
-              canPrompt: false,
-              requiresSettings: false,
-              soundEnabled: true,
-            };
-          }
-          if (status.receive === 'denied') {
-            return {
-              state: 'BLOCKED',
-              platform,
-              canPrompt: false,
-              requiresSettings: true,
-              soundEnabled: false,
-            };
-          }
+      try {
+        const status = await PushNotifications.checkPermissions();
+        if (status.receive === 'granted') {
           return {
-            state: 'NOT_DETERMINED',
+            state: 'GRANTED',
             platform,
-            canPrompt: true,
+            canPrompt: false,
             requiresSettings: false,
             soundEnabled: true,
           };
-        } catch {}
+        }
+        if (status.receive === 'denied') {
+          return {
+            state: 'BLOCKED',
+            platform,
+            canPrompt: false,
+            requiresSettings: true,
+            soundEnabled: false,
+          };
+        }
+        return {
+          state: 'NOT_DETERMINED',
+          platform,
+          canPrompt: true,
+          requiresSettings: false,
+          soundEnabled: true,
+        };
+      } catch (err) {
+        console.warn('[POS NotificationPermission] Native check error:', err);
       }
     }
 
+    // Web / PWA
     if (typeof window === 'undefined' || !('Notification' in window)) {
       return {
         state: 'UNSUPPORTED',
@@ -116,6 +115,9 @@ export class NotificationPermissionManager {
     };
   }
 
+  /**
+   * Request native permission when appropriate (e.g. user clicked "Enable Notifications").
+   */
   static async requestPermission(): Promise<NotificationPermissionInfo> {
     const platform = this.getPlatform();
 
@@ -124,31 +126,31 @@ export class NotificationPermissionManager {
     }
 
     if (platform === 'android' || platform === 'ios') {
-      const PushNotifications = (window as any).Capacitor?.Plugins?.PushNotifications;
-      if (PushNotifications && typeof PushNotifications.requestPermissions === 'function') {
-        try {
-          const res = await PushNotifications.requestPermissions();
-          if (res.receive === 'granted') {
-            await PushNotifications.register().catch(() => {});
-            return {
-              state: 'GRANTED',
-              platform,
-              canPrompt: false,
-              requiresSettings: false,
-              soundEnabled: true,
-            };
-          }
+      try {
+        const res = await PushNotifications.requestPermissions();
+        if (res.receive === 'granted') {
+          await PushNotifications.register().catch(() => {});
           return {
-            state: 'BLOCKED',
+            state: 'GRANTED',
             platform,
             canPrompt: false,
-            requiresSettings: true,
-            soundEnabled: false,
+            requiresSettings: false,
+            soundEnabled: true,
           };
-        } catch {}
+        }
+        return {
+          state: 'BLOCKED',
+          platform,
+          canPrompt: false,
+          requiresSettings: true,
+          soundEnabled: false,
+        };
+      } catch (err) {
+        console.warn('[POS NotificationPermission] Native request error:', err);
       }
     }
 
+    // Web
     if (!('Notification' in window)) {
       return {
         state: 'UNSUPPORTED',
@@ -172,7 +174,7 @@ export class NotificationPermissionManager {
       }
       return {
         state: 'BLOCKED',
-        platform: 'web',
+        platform,
         canPrompt: false,
         requiresSettings: true,
         soundEnabled: false,
@@ -186,5 +188,23 @@ export class NotificationPermissionManager {
         soundEnabled: false,
       };
     }
+  }
+
+  /**
+   * Explains how to open settings or triggers native app settings.
+   */
+  static async openSettingsInstructions(): Promise<string> {
+    const platform = this.getPlatform();
+    if (platform === 'android' || platform === 'ios') {
+      try {
+        const App = (Capacitor as any)?.Plugins?.App;
+        if (App && typeof App.openAppSettings === 'function') {
+          await App.openAppSettings();
+          return 'Opening device app settings...';
+        }
+      } catch {}
+      return 'Please open your phone Settings > Apps > Olive Pizza POS > Notifications and switch to Allow.';
+    }
+    return 'Click the padlock or site settings icon beside the URL in your browser address bar and enable Notifications.';
   }
 }
