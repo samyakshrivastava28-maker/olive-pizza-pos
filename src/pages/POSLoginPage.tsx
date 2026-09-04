@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { AppLogo } from '../components/common/AppLogo';
 import toast from 'react-hot-toast';
+import { requestPostLoginNotificationPermissions } from '../services/notificationPermissionService';
 
 interface POSLoginPageProps {
   onLoginSuccess: () => void;
@@ -286,6 +287,7 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
     });
 
     toast.success(`Welcome ${cashierName}! ${isOwnerUser ? 'Master Owner Full Access Activated.' : `Terminal ${terminalId} authenticated.`}`);
+    requestPostLoginNotificationPermissions().catch(() => {});
     onLoginSuccess();
   };
 
