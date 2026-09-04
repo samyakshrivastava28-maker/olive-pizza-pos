@@ -9,7 +9,7 @@ export const firebaseConfig = {
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "olive-pizza-08",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "olive-pizza-08.firebasestorage.app",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "1017239455106",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:1017239455106:web:ea5dd73d10722020007b9b"
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:1017239455106:web:0607d00669decfd9007b9b"
 };
 
 export const app = initializeApp(firebaseConfig);

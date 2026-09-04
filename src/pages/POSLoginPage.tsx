@@ -4,11 +4,14 @@ import { auth, db } from '../lib/firebase';
 import { 
   signInWithEmailAndPassword, 
   signInWithPopup, 
+  signInWithCredential,
   GoogleAuthProvider, 
   signOut,
   sendEmailVerification,
   User as FirebaseUser 
 } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
   Pizza, 
@@ -216,10 +219,20 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
     setUnverifiedUser(null);
 
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-      const userCred = await signInWithPopup(auth, provider);
-      const user = userCred.user;
+      let user: FirebaseUser | null = null;
+      if (Capacitor.isNativePlatform()) {
+        const res = await FirebaseAuthentication.signInWithGoogle();
+        const idToken = res.credential?.idToken;
+        if (!idToken) throw new Error('Failed to get Google ID token on mobile device.');
+        const credential = GoogleAuthProvider.credential(idToken);
+        const userCred = await signInWithCredential(auth, credential);
+        user = userCred.user;
+      } else {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        const userCred = await signInWithPopup(auth, provider);
+        user = userCred.user;
+      }
 
       // Authorization & Role Validation
       const { isAuthorized, role, name } = await verifyUserAuthorization(user);
@@ -276,6 +289,13 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
     onLoginSuccess();
   };
 
+  const handleQuickStaffSignIn = (selectedEmail: string, name: string) => {
+    setEmail(selectedEmail);
+    toast(`Selected ${name} (${selectedEmail}). Sign in with password or Google to establish your POS session.`, {
+      icon: '🔐',
+    });
+  };
+
   return (
     <div className="min-h-screen w-screen bg-[#0B0F17] flex items-center justify-center p-4 select-none">
       <div className="w-full max-w-md bg-[#0E1524] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
@@ -321,7 +341,7 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
         <div className="space-y-2">
           <button
             type="button"
-            onClick={() => finalizeSession('ZzMmHLa6fBeDYY7clYNjP70fbiE2', 'Olive Pizza Master Owner', 'owner')}
+            onClick={() => handleQuickStaffSignIn('olivepizzarjn@gmail.com', 'Master Owner')}
             className="w-full py-2.5 px-3.5 bg-slate-900 hover:bg-slate-850 border border-amber-500/40 hover:border-amber-500 rounded-xl text-xs font-bold text-white flex items-center justify-between transition-all cursor-pointer shadow-sm"
           >
             <div className="flex items-center gap-2.5">
@@ -336,7 +356,7 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
 
           <button
             type="button"
-            onClick={() => finalizeSession('6tLLR6q7aTYqzTG2blRx3TU5sA42', 'Senior Cashier & Shift Lead', 'cashier')}
+            onClick={() => handleQuickStaffSignIn('olivepizzamaker@gmail.com', 'Shift Lead / Cashier')}
             className="w-full py-2.5 px-3.5 bg-slate-900 hover:bg-slate-850 border border-slate-700 hover:border-emerald-500/50 rounded-xl text-xs font-bold text-white flex items-center justify-between transition-all cursor-pointer shadow-sm"
           >
             <div className="flex items-center gap-2.5">
