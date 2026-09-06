@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { BACKEND_URL } from '../lib/api';
 import { POSCartItem, OrderSourceType, POSTerminalSession, POSCompletedBill, POSCustomerProfile, HeldBill, BranchOption } from '../types/pos';
 
 export type CustomerLookupStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NOT_FOUND' | 'ERROR';
@@ -12,6 +13,9 @@ interface POSState {
   session: POSTerminalSession | null;
   isAuthChecking: boolean;
   isAuthorized: boolean;
+  restrictedReason: string | null;
+  restrictedEmail: string | null;
+  clearRestricted: () => void;
   setSession: (session: POSTerminalSession | null) => void;
   initAuth: () => () => void;
   logout: () => Promise<void>;
@@ -126,9 +130,14 @@ export const usePOSStore = create<POSState>((set, get) => ({
   session: null,
   isAuthChecking: true,
   isAuthorized: false,
+  restrictedReason: null,
+  restrictedEmail: null,
+  clearRestricted: () => set({ restrictedReason: null, restrictedEmail: null }),
   setSession: (session) => set({ 
     session,
     isAuthorized: !!session,
+    restrictedReason: null,
+    restrictedEmail: null,
     activeBranchId: session?.branchId || localStorage.getItem('pos_branch_id') || 'main_branch',
     activeFranchiseId: session?.franchiseId || 'fra_primary',
     isOwner: session?.role === 'owner' || session?.isOwnerMode || false
@@ -146,87 +155,110 @@ export const usePOSStore = create<POSState>((set, get) => ({
         return;
       }
 
+      const emailLower = (firebaseUser.email || '').toLowerCase().trim();
+      const terminalId = localStorage.getItem('pos_terminal_id') || 'pos_term_01';
+      const branchId = localStorage.getItem('pos_branch_id') || 'main_branch';
+
       try {
-        const emailLower = (firebaseUser.email || '').toLowerCase().trim();
-        const isMasterOwner = emailLower === 'olivepizzarjn@gmail.com' || emailLower === 'webhub2811@gmail.com' || emailLower === 'olivepizzamaker@gmail.com';
-
-        let role = isMasterOwner ? 'owner' : 'cashier';
-        let branchId = localStorage.getItem('pos_branch_id') || 'main_branch';
-        let branchName = branchId === 'main_branch' ? 'Olive Pizza — Rajnandgaon (HQ)' : 'Olive Pizza Branch';
-        let franchiseId = 'fra_primary';
-        let terminalId = localStorage.getItem('pos_terminal_id') || 'pos_term_01';
-        let isAuthorized = isMasterOwner;
-
-        // 1. Direct Firestore user doc lookup
-        try {
-          const userDocSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
-          if (userDocSnap.exists()) {
-            const data = userDocSnap.data();
-            role = data.role || role;
-            if (data.branchId) branchId = data.branchId;
-            if (data.branchName) branchName = data.branchName;
-            if (data.franchiseId) franchiseId = data.franchiseId;
-            const ALLOWED_STAFF_ROLES = ['owner', 'admin', 'developer', 'cashier', 'manager', 'restaurant_manager', 'franchise_owner', 'staff'];
-            if (ALLOWED_STAFF_ROLES.includes(data.role)) {
-              isAuthorized = true;
-            }
-          }
-        } catch (e) {
-          console.warn('[POSStore] User doc lookup notice:', e);
-        }
-
-        // 2. Direct pos_terminals doc lookup
-        if (!isAuthorized) {
-          try {
-            const termDocSnap = await getDoc(doc(db, 'pos_terminals', terminalId));
-            if (termDocSnap.exists()) {
-              const termData = termDocSnap.data();
-              if (termData.status === 'ACTIVE' || termData.isActive) {
-                isAuthorized = true;
-              }
-            }
-          } catch (e) {
-            console.warn('[POSStore] Terminal doc lookup notice:', e);
-          }
-        }
-
-        if (isAuthorized) {
-          const newSession: POSTerminalSession = {
-            cashierName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Staff Member',
-            cashierUid: firebaseUser.uid,
+        const idToken = await firebaseUser.getIdToken();
+        const resp = await fetch(`${BACKEND_URL}/api/auth/authorize-app`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({
+            targetApp: 'POS',
             terminalId,
-            branchId,
-            branchName,
-            franchiseId,
+            requestedBranchId: branchId
+          })
+        });
+
+        const authData = await resp.json().catch(() => null);
+
+        if (resp.ok && authData?.authorized) {
+          const u = authData.user;
+          const newSession: POSTerminalSession = {
+            cashierName: u.name || firebaseUser.displayName || emailLower.split('@')[0] || 'Cashier',
+            cashierUid: firebaseUser.uid,
+            terminalId: u.terminalId || terminalId,
+            branchId: u.branchId || branchId,
+            branchName: u.branchName || 'Olive Pizza — Rajnandgaon (HQ)',
+            franchiseId: u.franchiseId || 'fra_primary',
             organizationId: 'org_olive_pizza',
-            role: role as any,
-            isOwnerMode: isMasterOwner || role === 'owner'
+            role: u.role as any,
+            isOwnerMode: u.role === 'owner' || u.role === 'admin' || u.role === 'developer'
           };
+
           set({
             user: firebaseUser,
             session: newSession,
             isAuthChecking: false,
             isAuthorized: true,
-            isOwner: isMasterOwner || role === 'owner',
-            activeBranchId: branchId,
-            activeFranchiseId: franchiseId
+            restrictedReason: null,
+            restrictedEmail: null,
+            isOwner: newSession.isOwnerMode,
+            activeBranchId: newSession.branchId,
+            activeFranchiseId: newSession.franchiseId
           });
         } else {
+          // Explicitly unauthorized account — wipe session and enforce immediate sign out
+          const denialReason = authData?.reason || 'This account is not authorized to use this Olive Pizza application.';
+          console.warn('[POSStore] Access restricted for account:', emailLower, denialReason);
+
+          await signOut(auth).catch(() => {});
+          localStorage.removeItem('pos_session');
+          sessionStorage.clear();
+
           set({
-            user: firebaseUser,
+            user: null,
             session: null,
             isAuthChecking: false,
-            isAuthorized: false
+            isAuthorized: false,
+            restrictedReason: denialReason,
+            restrictedEmail: emailLower
           });
         }
-      } catch (err) {
-        console.error('[POSStore] Auth init error:', err);
-        set({
-          user: firebaseUser,
-          session: null,
-          isAuthChecking: false,
-          isAuthorized: false
-        });
+      } catch (err: any) {
+        console.error('[POSStore] Auth handshake network error:', err);
+
+        // Fallback only for master owners when backend is temporarily offline
+        const isMasterOwner = emailLower === 'olivepizzarjn@gmail.com' || emailLower === 'webhub2811@gmail.com' || emailLower === 'olivepizzamaker@gmail.com';
+        if (isMasterOwner) {
+          const fallbackSession: POSTerminalSession = {
+            cashierName: 'Platform Owner',
+            cashierUid: firebaseUser.uid,
+            terminalId,
+            branchId,
+            branchName: 'Olive Pizza — Rajnandgaon (HQ)',
+            franchiseId: 'fra_primary',
+            organizationId: 'org_olive_pizza',
+            role: 'owner',
+            isOwnerMode: true
+          };
+          set({
+            user: firebaseUser,
+            session: fallbackSession,
+            isAuthChecking: false,
+            isAuthorized: true,
+            restrictedReason: null,
+            restrictedEmail: null,
+            isOwner: true,
+            activeBranchId: branchId,
+            activeFranchiseId: 'fra_primary'
+          });
+        } else {
+          // Block unrecognized accounts
+          await signOut(auth).catch(() => {});
+          set({
+            user: null,
+            session: null,
+            isAuthChecking: false,
+            isAuthorized: false,
+            restrictedReason: 'Unable to verify terminal authorization with server. Please ensure you are online.',
+            restrictedEmail: emailLower
+          });
+        }
       }
     });
 

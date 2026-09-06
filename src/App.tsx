@@ -6,10 +6,11 @@ import { POSBillingScreen } from './pages/POSBillingScreen';
 import { POSDashboardPage } from './pages/POSDashboardPage';
 import { POSLoginPage } from './pages/POSLoginPage';
 import { POSTerminalActivationPage } from './pages/POSTerminalActivationPage';
+import { AppRestrictedScreen } from './components/common/AppRestrictedScreen';
 import POSPushNotificationManager from './services/POSPushNotificationManager';
 
 export function App() {
-  const { session, isAuthChecking, isAuthorized, initAuth, logout } = usePOSStore();
+  const { session, isAuthChecking, isAuthorized, restrictedReason, restrictedEmail, clearRestricted, initAuth, logout } = usePOSStore();
 
   useEffect(() => {
     const unsub = initAuth();
@@ -24,6 +25,24 @@ export function App() {
           <p className="text-xs text-slate-400 font-medium">Verifying POS Terminal Session...</p>
         </div>
       </div>
+    );
+  }
+
+  if (restrictedReason) {
+    return (
+      <AppRestrictedScreen
+        appName="Olive Pizza POS & Billing"
+        userEmail={restrictedEmail || undefined}
+        reason={restrictedReason}
+        onRetry={() => {
+          clearRestricted();
+          initAuth();
+        }}
+        onSignOut={async () => {
+          clearRestricted();
+          await logout();
+        }}
+      />
     );
   }
 
