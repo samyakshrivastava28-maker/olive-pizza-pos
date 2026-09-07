@@ -14,7 +14,7 @@ import { POSProduct, POSCompletedBill } from '../types/pos';
 import { ProductStockDrawer } from '../components/pos/ProductStockDrawer';
 import { PrinterSettingsModal } from '../components/pos/PrinterSettingsModal';
 import { PrintQueueDrawer } from '../components/pos/PrintQueueDrawer';
-import { UtensilsCrossed, Globe } from 'lucide-react';
+import { UtensilsCrossed, Globe, ShoppingBag } from 'lucide-react';
 import { OnlineOrderPrintListener } from '../services/OnlineOrderPrintListener';
 import { OfflineBillingQueueService } from '../services/OfflineBillingQueueService';
 import { ThermalPrinterService } from '../services/ThermalPrinterService';
@@ -55,6 +55,7 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
   const [selectedProduct, setSelectedProduct] = useState<POSProduct | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [billingMode, setBillingMode] = useState<'PHYSICAL' | 'ONLINE'>('PHYSICAL');
+  const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Online order live print listener & offline sync / telemetry heartbeat workers
@@ -235,13 +236,51 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
 
       {/* 2. Main Workspace: Physical Billing OR Online Orders Hub */}
       {billingMode === 'PHYSICAL' ? (
-        <div className="flex-1 flex overflow-hidden">
-          <ProductGrid
-            products={products}
-            searchRef={searchInputRef}
-            onSelectProduct={(p) => setSelectedProduct(p)}
-          />
-          <CartPanel onOpenPayment={() => setIsPaymentOpen(true)} />
+        <div className="flex-1 flex overflow-hidden relative">
+          <div className="flex-1 overflow-hidden">
+            <ProductGrid
+              products={products}
+              searchRef={searchInputRef}
+              onSelectProduct={(p) => setSelectedProduct(p)}
+            />
+          </div>
+
+          {/* Desktop Cart (Visible on lg screens and up) */}
+          <div className="hidden lg:block h-full">
+            <CartPanel onOpenPayment={() => setIsPaymentOpen(true)} />
+          </div>
+
+          {/* Mobile Floating Cart Trigger (Visible only on screens < lg) */}
+          <div className="lg:hidden absolute bottom-4 right-4 z-20">
+            <button
+              type="button"
+              onClick={() => setIsMobileCartOpen(true)}
+              className="flex items-center gap-2.5 px-4 py-3 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-sm rounded-full shadow-2xl shadow-amber-500/40 active:scale-95 transition"
+            >
+              <ShoppingBag className="w-5 h-5" />
+              <span>View Cart</span>
+              {items.length > 0 && (
+                <span className="px-2 py-0.5 bg-zinc-950 text-amber-400 rounded-full text-xs font-mono font-bold">
+                  {items.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Mobile Bottom Sheet / Modal Drawer */}
+          {isMobileCartOpen && (
+            <div className="lg:hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end animate-in fade-in duration-150">
+              <div className="w-full max-w-md h-full bg-zinc-950 shadow-2xl animate-in slide-in-from-right duration-200">
+                <CartPanel
+                  onOpenPayment={() => {
+                    setIsMobileCartOpen(false);
+                    setIsPaymentOpen(true);
+                  }}
+                  onClose={() => setIsMobileCartOpen(false)}
+                />
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <OnlineOrdersHub />

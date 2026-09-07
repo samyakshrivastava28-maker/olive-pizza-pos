@@ -3,12 +3,13 @@ import { usePOSStore, getPOSCalculations } from '../../store/posStore';
 import { CustomerSection } from './CustomerSection';
 import { 
   Trash2, Plus, Minus, CreditCard, Tag, UtensilsCrossed, ShoppingBag, 
-  Truck, RotateCcw, PauseCircle, MapPin
+  Truck, RotateCcw, PauseCircle, MapPin, X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface CartPanelProps {
   onOpenPayment: () => void;
+  onClose?: () => void;
 }
 
 const TABLE_LIST = ['T-1', 'T-2', 'T-3', 'T-4', 'T-5', 'T-6', 'T-7', 'T-8', 'T-9', 'T-10', 'T-11', 'T-12'];
@@ -21,7 +22,7 @@ const QUICK_DISCOUNTS = [
   { label: 'Flat ₹100', flat: 100 },
 ];
 
-export const CartPanel: React.FC<CartPanelProps> = ({ onOpenPayment }) => {
+export const CartPanel: React.FC<CartPanelProps> = ({ onOpenPayment, onClose }) => {
   const {
     items,
     updateQuantity,
@@ -59,7 +60,25 @@ export const CartPanel: React.FC<CartPanelProps> = ({ onOpenPayment }) => {
   };
 
   return (
-    <aside className="w-96 bg-zinc-950 border-l border-zinc-800 flex flex-col h-full select-none">
+    <aside className="w-full lg:w-96 bg-zinc-950 border-l border-zinc-800 flex flex-col h-full select-none">
+      {/* Optional Mobile Header with Close Button */}
+      {onClose && (
+        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-zinc-900 border-b border-zinc-800">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-white uppercase tracking-wider">Current Bill</span>
+            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-mono text-[10px] font-bold">
+              {items.length} {items.length === 1 ? 'item' : 'items'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       {/* 1. Fast Order Type Selector (Dine-In, Takeaway, Delivery) */}
       <div className="p-3 border-b border-zinc-800 bg-zinc-900/60">
         <div className="grid grid-cols-3 gap-1.5 p-1 bg-zinc-950 rounded-xl border border-zinc-800">

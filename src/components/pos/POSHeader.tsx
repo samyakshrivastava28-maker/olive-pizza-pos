@@ -15,6 +15,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { AppLogo } from '../common/AppLogo';
 import { fetchPOSApi } from '../../lib/api';
+import { POSConnectionBadge } from './POSConnectionBadge';
 
 interface POSHeaderProps {
   onLogout: () => void;
@@ -128,6 +129,9 @@ export const POSHeader: React.FC<POSHeaderProps> = ({ onLogout }) => {
 
       {/* Right: Actions & Terminal Controls */}
       <div className="flex items-center gap-2">
+        {/* Real-time Connection Status Badge */}
+        <POSConnectionBadge />
+
         {/* Held Bills (F8) */}
         <button
           onClick={() => setIsHeldBillsOpen(true)}

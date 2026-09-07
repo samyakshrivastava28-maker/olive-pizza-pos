@@ -11,7 +11,6 @@ import {
   User as FirebaseUser 
 } from 'firebase/auth';
 import { Capacitor } from '@capacitor/core';
-import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
   Pizza, 
@@ -222,6 +221,7 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
     try {
       let user: FirebaseUser | null = null;
       if (Capacitor.isNativePlatform()) {
+        const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
         const res = await FirebaseAuthentication.signInWithGoogle();
         const idToken = res.credential?.idToken;
         if (!idToken) throw new Error('Failed to get Google ID token on mobile device.');
