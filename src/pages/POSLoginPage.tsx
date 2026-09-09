@@ -11,6 +11,7 @@ import {
   User as FirebaseUser 
 } from 'firebase/auth';
 import { Capacitor } from '@capacitor/core';
+import { BACKEND_URL } from '../lib/api';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
   Pizza, 
@@ -128,50 +129,67 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
   };
 
   // Authorize User Role & Permissions
-  const verifyUserAuthorization = async (user: FirebaseUser): Promise<{ isAuthorized: boolean; role: string; name: string }> => {
+  const verifyUserAuthorization = async (user: FirebaseUser): Promise<{ isAuthorized: boolean; role: string; name: string; denialReason?: string }> => {
     const userEmail = (user.email || '').toLowerCase().trim();
+    const isMasterOwner = AUTHORIZED_EMAILS.includes(userEmail);
 
-    // 1. Global Owner / Admin Bypass
-    if (AUTHORIZED_EMAILS.includes(userEmail)) {
-      return {
-        isAuthorized: true,
-        role: 'owner',
-        name: user.displayName || userEmail.split('@')[0].toUpperCase(),
-      };
-    }
-
-    // 2. Check Firestore User Account Profile
     try {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        const role = (data.role || '').toLowerCase();
-        if (ALLOWED_STAFF_ROLES.includes(role)) {
-          return {
-            isAuthorized: true,
-            role,
-            name: data.name || data.displayName || userEmail.split('@')[0],
-          };
-        }
-      }
-    } catch (err: any) {
-      console.warn('[POS Auth] Firestore check warning:', err.message);
-    }
+      const idToken = await user.getIdToken();
+      const resp = await fetch(`${BACKEND_URL}/api/auth/authorize-app`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          targetApp: 'POS',
+          terminalId,
+          requestedBranchId: branchId
+        })
+      });
 
-    // 3. Fallback Check in Custom Claims or Staff Collection
-    try {
-      const idTokenResult = await user.getIdTokenResult(true);
-      const roleClaim = String(idTokenResult.claims.role || idTokenResult.claims.user_type || '').toLowerCase();
-      if (ALLOWED_STAFF_ROLES.includes(roleClaim)) {
+      const authData = await resp.json().catch(() => null);
+
+      if (resp.ok && authData?.authorized) {
+        const u = authData.user;
         return {
           isAuthorized: true,
-          role: roleClaim,
-          name: user.displayName || userEmail.split('@')[0],
+          role: u.role || 'cashier',
+          name: u.name || user.displayName || userEmail.split('@')[0]
+        };
+      } else {
+        const denialReason = authData?.reason || 'This account is not authorized to use the Olive Pizza POS terminal.';
+        if (resp.status !== 403 && isMasterOwner) {
+          return {
+            isAuthorized: true,
+            role: 'owner',
+            name: user.displayName || 'Platform Owner'
+          };
+        }
+        return {
+          isAuthorized: false,
+          role: 'customer',
+          name: user.displayName || 'Customer',
+          denialReason
         };
       }
-    } catch {}
+    } catch (netErr: any) {
+      console.warn('[POS Auth] Server check failed:', netErr);
+      if (isMasterOwner) {
+        return {
+          isAuthorized: true,
+          role: 'owner',
+          name: user.displayName || 'Platform Owner'
+        };
+      }
+    }
 
-    return { isAuthorized: false, role: 'customer', name: user.displayName || 'Customer' };
+    return {
+      isAuthorized: false,
+      role: 'customer',
+      name: user.displayName || 'Customer',
+      denialReason: 'Unable to verify account authorization with Olive Pizza server.'
+    };
   };
 
   // 1. Email / Password Login Handler
@@ -190,11 +208,18 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
       const user = userCred.user;
 
       // Authorization & Role Validation
-      const { isAuthorized, role, name } = await verifyUserAuthorization(user);
+      const { isAuthorized, role, name, denialReason } = await verifyUserAuthorization(user);
       if (!isAuthorized) {
         await signOut(auth);
         recordFailedAttempt();
-        toast.error('Access Denied: Terminal restricted to authorized restaurant staff & owners only.');
+        usePOSStore.setState({
+          user: null,
+          session: null,
+          isAuthorized: false,
+          restrictedReason: denialReason || 'Access Denied: Terminal restricted to authorized restaurant staff & owners only.',
+          restrictedEmail: user.email || ''
+        });
+        toast.error(denialReason || 'Access Denied: Terminal restricted to authorized restaurant staff & owners only.');
         setLoading(false);
         return;
       }
@@ -236,11 +261,18 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
       }
 
       // Authorization & Role Validation
-      const { isAuthorized, role, name } = await verifyUserAuthorization(user);
+      const { isAuthorized, role, name, denialReason } = await verifyUserAuthorization(user);
       if (!isAuthorized) {
         await signOut(auth);
         recordFailedAttempt();
-        toast.error('Access Denied: Your Google account is not registered as a store staff or owner.');
+        usePOSStore.setState({
+          user: null,
+          session: null,
+          isAuthorized: false,
+          restrictedReason: denialReason || 'Access Denied: Your Google account is not registered as a store staff or owner.',
+          restrictedEmail: user.email || ''
+        });
+        toast.error(denialReason || 'Access Denied: Your Google account is not registered as a store staff or owner.');
         setGoogleLoading(false);
         return;
       }
