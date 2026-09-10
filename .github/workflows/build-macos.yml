@@ -39,8 +39,11 @@ jobs:
           mkdir -p artifact
           COMMIT_NUM=$(git rev-list --count HEAD)
           TARGET_NAME="olivepizza-pos-${COMMIT_NUM}.dmg"
-          cp dist-electron/*.dmg "artifact/${TARGET_NAME}" || true
-          echo "Packaged ${TARGET_NAME}"
+          FIRST_DMG=$(ls dist-electron/*.dmg 2>/dev/null | head -n 1)
+          if [ -n "$FIRST_DMG" ] && [ -f "$FIRST_DMG" ]; then
+            cp "$FIRST_DMG" "artifact/${TARGET_NAME}"
+            echo "Packaged ${TARGET_NAME} from ${FIRST_DMG}"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: OlivePizzaPOS-macOS-Installer
