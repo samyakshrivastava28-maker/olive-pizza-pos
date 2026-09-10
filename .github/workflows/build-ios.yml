@@ -1,4 +1,4 @@
-name: Build iOS — POS
+name: Build iOS � POS
 
 on:
   push:
@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
@@ -55,7 +57,7 @@ jobs:
             sudo gem install cocoapods
             pod install --repo-update
           else
-            echo "Swift Package Manager project detected — skipping CocoaPods"
+            echo "Swift Package Manager project detected � skipping CocoaPods"
           fi
 
       - name: Select Xcode version
@@ -90,14 +92,14 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          echo "Signing configured — exporting IPA..."
+          echo "Signing configured � exporting IPA..."
           echo "$APPLE_CERTIFICATE_BASE64" | base64 -d > /tmp/certificate.p12
           echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -d > /tmp/profile.mobileprovision
           security create-keychain -p "" build.keychain
           security import /tmp/certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -A
           security set-keychain-settings -t 3600 -u build.keychain
           security unlock-keychain -p "" build.keychain
-          security list-keychains -d user -s build.keychain "$(security list-keychains -d user | head -1 | tr -d '"')"
+          security list-keychains -d user -s build.keychain "$(security list-keychains -d user | head -1 | tr -d '\"')"
           mkdir -p /tmp/ipa-export
           cat > /tmp/ExportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -118,23 +120,22 @@ jobs:
       - name: Package Release Files
         run: |
           mkdir -p release-ios
+          COMMIT_NUM=$(git rev-list --count HEAD)
+          IPA_NAME="olivepizza-pos-${COMMIT_NUM}.ipa"
           ARCHIVE_PATH="${{ github.workspace }}/OlivePizza-POS.xcarchive"
           if [ -d "$ARCHIVE_PATH" ]; then
-            echo "Packaging xcarchive bundle..."
-            zip -r "release-ios/OlivePizza-POS.xcarchive.zip" "$ARCHIVE_PATH"
-
             echo "Packaging unsigned IPA from archive..."
             mkdir -p /tmp/Payload
             cp -r "$ARCHIVE_PATH/Products/Applications/"*.app /tmp/Payload/ || true
             if [ -d "/tmp/Payload" ] && [ "$(ls -A /tmp/Payload)" ]; then
               cd /tmp
-              zip -r "${{ github.workspace }}/release-ios/OlivePizza-POS-unsigned.ipa" Payload
+              zip -r "${{ github.workspace }}/release-ios/${IPA_NAME}" Payload
               cd ${{ github.workspace }}
-              echo "✅ Unsigned IPA created."
+              echo "? Unsigned IPA created: ${IPA_NAME}"
             fi
           fi
           if [ -d "/tmp/ipa-export" ]; then
-            cp -f /tmp/ipa-export/*.ipa release-ios/ || true
+            cp -f /tmp/ipa-export/*.ipa "release-ios/${IPA_NAME}" || true
           fi
           ls -la release-ios/
 
@@ -145,45 +146,37 @@ jobs:
           path: release-ios/*
           retention-days: 14
 
-      # Create or Update Unified GitHub Release (All Platforms)
-      - name: Create or Update Unified GitHub Release
-        id: create_unified_release
-        continue-on-error: true
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          name: "Olive Pizza POS — Latest Release (All Platforms)"
-          tag_name: "latest"
-          files: release-ios/*
-          clobber: true
-          draft: false
-          prerelease: false
-          make_latest: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Publish to GitHub Release (Only Latest Commit Files)
+      - name: Publish to GitHub Release
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: |
+          COMMIT_NUM=$(git rev-list --count HEAD)
+          IPA_NAME="olivepizza-pos-${COMMIT_NUM}.ipa"
+          echo "Publishing ${IPA_NAME} to release tag 'latest'..."
 
-      # Create Versioned GitHub Release
-      - name: Create Versioned GitHub Release
-        id: create_release
-        continue-on-error: true
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          name: "Olive Pizza POS iOS v1.0.${{ github.run_number }}"
-          tag_name: "v1.0.${{ github.run_number }}-ios"
-          files: release-ios/*
-          draft: false
-          prerelease: false
-          make_latest: false
-          generate_release_notes: true
+          # Ensure 'latest' release exists or create it
+          gh release view latest --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || \
+            gh release create latest --repo "${GITHUB_REPOSITORY}" --title "Olive Pizza POS � Latest Release" --notes "Latest official builds for Olive Pizza POS."
+
+          # Delete ANY old iOS assets from 'latest' release so only the latest commit file exists
+          OLD_IOS=$(gh release view latest --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[] | select(.name | test("(\\.(ipa|zip)$)|xcarchive")) | .name')
+          for old in $OLD_IOS; do
+            echo "Deleting old release asset: ${old}"
+            gh release delete-asset latest "${old}" --repo "${GITHUB_REPOSITORY}" --yes || true
+          done
+
+          # Upload the new commit's IPA
+          if [ -f "release-ios/${IPA_NAME}" ]; then
+            gh release upload latest "release-ios/${IPA_NAME}" --repo "${GITHUB_REPOSITORY}" --clobber
+          fi
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build status summary
         run: |
           echo "## iOS Build Result" >> $GITHUB_STEP_SUMMARY
           if ls release-ios/*.ipa 2>/dev/null; then
-            echo "**Status**: ✅ IOS_BUILD_READY" >> $GITHUB_STEP_SUMMARY
+            echo "**Status**: ? IOS_BUILD_READY" >> $GITHUB_STEP_SUMMARY
           else
-            echo "**Status**: ⚠️ ARCHIVE_READY (xcarchive packaged)" >> $GITHUB_STEP_SUMMARY
+            echo "**Status**: ?? ARCHIVE_READY (xcarchive packaged)" >> $GITHUB_STEP_SUMMARY
           fi
