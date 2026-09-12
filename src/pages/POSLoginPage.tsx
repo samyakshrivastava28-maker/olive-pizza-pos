@@ -78,15 +78,10 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
 
   const branches = [
     { id: 'main_branch', name: 'Olive Pizza — Rajnandgaon (HQ)', code: 'OP-RJN-01' },
-    { id: 'durg_branch', name: 'Olive Pizza — Durg', code: 'OP-DURG-02' },
-    { id: 'bhilai_branch', name: 'Olive Pizza — Bhilai', code: 'OP-BHL-03' },
-    { id: 'raipur_branch', name: 'Olive Pizza — Raipur', code: 'OP-RPR-04' },
   ];
 
   const terminals = [
-    { id: 'pos_term_01', name: 'Terminal #01 (Front Counter)' },
-    { id: 'pos_term_02', name: 'Terminal #02 (Takeaway Counter)' },
-    { id: 'pos_term_03', name: 'Terminal #03 (Express Counter)' },
+    { id: 'pos_term_01', name: 'Terminal #01 (Front Counter — Rajnandgaon)' },
   ];
 
   // Lockout Countdown Timer
