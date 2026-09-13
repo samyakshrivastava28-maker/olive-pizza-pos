@@ -8,9 +8,13 @@ import { POSLoginPage } from './pages/POSLoginPage';
 import { POSTerminalActivationPage } from './pages/POSTerminalActivationPage';
 import { AppRestrictedScreen } from './components/common/AppRestrictedScreen';
 import POSPushNotificationManager from './services/POSPushNotificationManager';
+import { POSPinUnlockScreen } from './components/pos/POSPinUnlockScreen';
 
 export function App() {
-  const { session, isAuthChecking, isAuthorized, restrictedReason, restrictedEmail, clearRestricted, initAuth, logout } = usePOSStore();
+  const { session, user, isAuthChecking, isAuthorized, restrictedReason, restrictedEmail, clearRestricted, initAuth, logout } = usePOSStore();
+  const [isPinUnlocked, setIsPinUnlocked] = React.useState<boolean>(() => {
+    return sessionStorage.getItem('pos_pin_unlocked') === 'true';
+  });
 
   useEffect(() => {
     const unsub = initAuth();
@@ -40,6 +44,8 @@ export function App() {
         }}
         onSignOut={async () => {
           clearRestricted();
+          sessionStorage.removeItem('pos_pin_unlocked');
+          setIsPinUnlocked(false);
           await logout();
         }}
       />
@@ -47,8 +53,21 @@ export function App() {
   }
 
   const handleLogout = async () => {
+    sessionStorage.removeItem('pos_pin_unlocked');
+    setIsPinUnlocked(false);
     await logout();
   };
+
+  // If user is authenticated and authorized, enforce 4-digit PIN unlock
+  if (isAuthorized && session && !isPinUnlocked) {
+    return (
+      <POSPinUnlockScreen
+        userEmail={user?.email || session?.email}
+        onUnlockSuccess={() => setIsPinUnlocked(true)}
+        onLogout={handleLogout}
+      />
+    );
+  }
 
   return (
     <HashRouter>

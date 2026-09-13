@@ -37,26 +37,22 @@ export const POSTerminalActivationPage: React.FC = () => {
       } else {
         toast.error(data.error || 'Invalid or expired activation PIN');
       }
-    } catch {
-      // Offline / Local dev fallback
-      localStorage.setItem('pos_terminal_id', 'POS-MAIN-1042');
-      localStorage.setItem('pos_branch_id', 'main_branch');
-      localStorage.setItem('pos_franchise_id', 'fra_primary');
-      toast.success('Terminal activated for Local Station!');
-      navigate('/billing');
+    } catch (err: any) {
+      console.error('[POSTerminalActivation] Activation error:', err);
+      toast.error(err.message || 'Unable to reach server to activate terminal. Please check your connection.');
     } finally {
       setIsActivating(false);
     }
   };
 
   return (
-    <div className="min-h-screen w-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6">
+    <div className="min-h-[100dvh] w-full bg-slate-950 text-white flex flex-col items-center justify-center p-3.5 sm:p-6 select-none">
+      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-8 shadow-2xl space-y-6">
         <div className="text-center space-y-2">
           <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-2xl flex items-center justify-center mx-auto text-3xl">
             <Monitor size={32} />
           </div>
-          <h1 className="font-black text-2xl text-white uppercase tracking-wide">
+          <h1 className="font-black text-xl sm:text-2xl text-white uppercase tracking-wide">
             ACTIVATE <span className="text-amber-400">POS TERMINAL</span>
           </h1>
           <p className="text-xs text-slate-400">
@@ -71,12 +67,15 @@ export const POSTerminalActivationPage: React.FC = () => {
             </label>
             <input
               type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="one-time-code"
               maxLength={6}
               required
               placeholder="e.g. 782910"
               value={activationCode}
               onChange={(e) => setActivationCode(e.target.value.replace(/\D/g, ''))}
-              className="w-full bg-slate-950 border border-slate-700 rounded-2xl px-4 py-3.5 text-center text-2xl font-mono font-black text-amber-400 tracking-[0.3em] focus:outline-none focus:border-amber-500 placeholder:text-slate-700 placeholder:tracking-normal"
+              className="w-full bg-slate-950 border border-slate-700 rounded-2xl px-4 py-3.5 text-center text-2xl font-mono font-black text-amber-400 tracking-[0.3em] focus:outline-none focus:border-amber-500 placeholder:text-slate-700 placeholder:tracking-normal min-h-[52px]"
             />
           </div>
 
@@ -90,17 +89,17 @@ export const POSTerminalActivationPage: React.FC = () => {
           <button
             type="submit"
             disabled={isActivating}
-            className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-amber-500/20 active:scale-98 flex items-center justify-center gap-2"
+            className="w-full min-h-[48px] py-3.5 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-amber-500/20 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {isActivating ? 'Verifying with Backend...' : 'Link & Launch POS Billing'}
             <ArrowRight size={16} />
           </button>
         </form>
 
-        <div className="text-center pt-2">
+        <div className="text-center pt-1">
           <button
             onClick={() => navigate('/login')}
-            className="text-xs text-slate-500 hover:text-slate-300 font-bold"
+            className="min-h-[44px] py-2 px-3 text-xs text-slate-400 hover:text-slate-200 font-bold inline-flex items-center justify-center cursor-pointer"
           >
             Sign in with Cashier Credentials instead
           </button>

@@ -70,6 +70,7 @@ export interface HeldBill {
 }
 
 export interface POSTerminalSession {
+  email?: string;
   isOwnerMode?: boolean;
   role?: string;
   franchiseName?: string;
