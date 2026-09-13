@@ -282,10 +282,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
   isOwner: false,
   setIsOwner: (isOwner) => set({ isOwner }),
   availableBranches: [
-    { franchiseId: 'fra_rajnandgaon', branchId: 'main_branch', name: 'Olive Pizza — Rajnandgaon (HQ)', code: 'OP-RJN-01', city: 'Rajnandgaon' },
-    { franchiseId: 'fra_durg', branchId: 'durg_branch', name: 'Olive Pizza — Durg Branch', code: 'OP-DURG-02', city: 'Durg' },
-    { franchiseId: 'fra_bhilai', branchId: 'bhilai_branch', name: 'Olive Pizza — Bhilai Central', code: 'OP-BHL-03', city: 'Bhilai' },
-    { franchiseId: 'fra_raipur', branchId: 'raipur_branch', name: 'Olive Pizza — Raipur Hub', code: 'OP-RPR-04', city: 'Raipur' }
+    { franchiseId: 'fra_rajnandgaon', branchId: 'main_branch', name: 'Olive Pizza — Rajnandgaon', code: 'OP-RJN-01', city: 'Rajnandgaon' }
   ],
   setAvailableBranches: (availableBranches) => set({ availableBranches }),
   activeBranchId: localStorage.getItem('pos_branch_id') || 'main_branch',
