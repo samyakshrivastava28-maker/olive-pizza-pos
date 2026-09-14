@@ -22,6 +22,7 @@ export async function fetchPOSApi(endpoint: string, options: RequestInit = {}): 
   headers.set('Content-Type', 'application/json');
   headers.set('x-terminal-id', terminalId);
   headers.set('x-branch-id', branchId);
+  headers.set('x-device-id', terminalId);
   
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
