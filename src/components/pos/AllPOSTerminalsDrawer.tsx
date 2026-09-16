@@ -30,9 +30,9 @@ export const AllPOSTerminalsDrawer: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
-  const [newBranchId, setNewBranchId] = useState('main_branch');
-  const [newFranchiseId, setNewFranchiseId] = useState('fra_rajnandgaon');
-  const [newTerminalId, setNewTerminalId] = useState('POS-RJN-01');
+  const [newBranchId, setNewBranchId] = useState('');
+  const [newFranchiseId, setNewFranchiseId] = useState('');
+  const [newTerminalId, setNewTerminalId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const loadData = async () => {

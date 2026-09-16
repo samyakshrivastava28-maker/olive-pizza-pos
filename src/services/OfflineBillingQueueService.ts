@@ -102,6 +102,10 @@ export class OfflineBillingQueueService {
    */
   public static async sendHeartbeat(): Promise<void> {
     const session = usePOSStore.getState().session;
+    if (!session?.terminalId || !session?.branchId || !session?.franchiseId) {
+      return;
+    }
+
     const isOnline = navigator.onLine;
     const pendingSyncCount = this.getOfflineQueue().length;
 
@@ -109,10 +113,10 @@ export class OfflineBillingQueueService {
       await fetchPOSApi('/api/pos/health/heartbeat', {
         method: 'POST',
         body: JSON.stringify({
-          terminalId: session?.terminalId || 'POS-TERM-01',
-          branchId: session?.branchId || 'main_branch',
-          franchiseId: session?.franchiseId || 'fra_primary',
-          shiftId: session?.terminalId ? `shift_${session.terminalId}` : undefined,
+          terminalId: session.terminalId,
+          branchId: session.branchId,
+          franchiseId: session.franchiseId,
+          shiftId: `shift_${session.terminalId}`,
           isOnline,
           pendingSyncCount,
           printerStatus: 'CONNECTED',

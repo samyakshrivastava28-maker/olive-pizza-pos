@@ -138,8 +138,8 @@ export const usePOSStore = create<POSState>((set, get) => ({
     isAuthorized: !!session,
     restrictedReason: null,
     restrictedEmail: null,
-    activeBranchId: session?.branchId || localStorage.getItem('pos_branch_id') || 'main_branch',
-    activeFranchiseId: session?.franchiseId || 'fra_primary',
+    activeBranchId: session?.branchId || '',
+    activeFranchiseId: session?.franchiseId || '',
     isOwner: session?.role === 'owner' || session?.isOwnerMode || false
   }),
 
@@ -156,8 +156,8 @@ export const usePOSStore = create<POSState>((set, get) => ({
       }
 
       const emailLower = (firebaseUser.email || '').toLowerCase().trim();
-      const terminalId = localStorage.getItem('pos_terminal_id') || 'pos_term_01';
-      const branchId = localStorage.getItem('pos_branch_id') || 'main_branch';
+      const terminalId = localStorage.getItem('pos_terminal_id') || '';
+      const branchId = localStorage.getItem('pos_branch_id') || '';
 
       try {
         const idToken = await firebaseUser.getIdToken();
@@ -169,8 +169,8 @@ export const usePOSStore = create<POSState>((set, get) => ({
           },
           body: JSON.stringify({
             targetApp: 'POS',
-            terminalId,
-            requestedBranchId: branchId
+            terminalId: terminalId || undefined,
+            requestedBranchId: branchId || undefined
           })
         });
 
@@ -178,16 +178,33 @@ export const usePOSStore = create<POSState>((set, get) => ({
 
         if (resp.ok && authData?.authorized) {
           const u = authData.user;
+          const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer';
+
+          if (!isPrivileged && (!u.branchId || !u.franchiseId || !u.terminalId)) {
+            await signOut(auth).catch(() => {});
+            localStorage.removeItem('pos_session');
+            sessionStorage.clear();
+            set({
+              user: null,
+              session: null,
+              isAuthChecking: false,
+              isAuthorized: false,
+              restrictedReason: 'POS terminal configuration incomplete. Missing server-assigned branch or franchise scope.',
+              restrictedEmail: emailLower
+            });
+            return;
+          }
+
           const newSession: POSTerminalSession = {
             cashierName: u.name || firebaseUser.displayName || emailLower.split('@')[0] || 'Cashier',
             cashierUid: firebaseUser.uid,
-            terminalId: u.terminalId || terminalId,
-            branchId: u.branchId || branchId,
-            branchName: u.branchName || 'Olive Pizza — Rajnandgaon (HQ)',
-            franchiseId: u.franchiseId || 'fra_primary',
-            organizationId: 'org_olive_pizza',
+            terminalId: u.terminalId || terminalId || 'pos_term_unassigned',
+            branchId: u.branchId || (isPrivileged ? 'main_branch' : ''),
+            branchName: u.branchName || (isPrivileged ? 'Olive Pizza — Rajnandgaon (HQ)' : ''),
+            franchiseId: u.franchiseId || (isPrivileged ? 'fra_primary' : ''),
+            organizationId: u.organizationId || 'org_olive_pizza',
             role: u.role as any,
-            isOwnerMode: u.role === 'owner' || u.role === 'admin' || u.role === 'developer'
+            isOwnerMode: isPrivileged
           };
 
           set({
@@ -222,43 +239,18 @@ export const usePOSStore = create<POSState>((set, get) => ({
       } catch (err: any) {
         console.error('[POSStore] Auth handshake network error:', err);
 
-        // Fallback only for master owners when backend is temporarily offline
-        const isMasterOwner = emailLower === 'olivepizzarjn@gmail.com' || emailLower === 'webhub2811@gmail.com' || emailLower === 'olivepizzamaker@gmail.com';
-        if (isMasterOwner) {
-          const fallbackSession: POSTerminalSession = {
-            cashierName: 'Platform Owner',
-            cashierUid: firebaseUser.uid,
-            terminalId,
-            branchId,
-            branchName: 'Olive Pizza — Rajnandgaon (HQ)',
-            franchiseId: 'fra_primary',
-            organizationId: 'org_olive_pizza',
-            role: 'owner',
-            isOwnerMode: true
-          };
-          set({
-            user: firebaseUser,
-            session: fallbackSession,
-            isAuthChecking: false,
-            isAuthorized: true,
-            restrictedReason: null,
-            restrictedEmail: null,
-            isOwner: true,
-            activeBranchId: branchId,
-            activeFranchiseId: 'fra_primary'
-          });
-        } else {
-          // Block unrecognized accounts
-          await signOut(auth).catch(() => {});
-          set({
-            user: null,
-            session: null,
-            isAuthChecking: false,
-            isAuthorized: false,
-            restrictedReason: 'Unable to verify terminal authorization with server. Please ensure you are online.',
-            restrictedEmail: emailLower
-          });
-        }
+        // Absolute Server Authority: Never synthesize offline sessions or bypass server check
+        await signOut(auth).catch(() => {});
+        localStorage.removeItem('pos_session');
+        sessionStorage.clear();
+        set({
+          user: null,
+          session: null,
+          isAuthChecking: false,
+          isAuthorized: false,
+          restrictedReason: 'Server verification required. Terminal access cannot be granted while server is unreachable.',
+          restrictedEmail: emailLower
+        });
       }
     });
 
@@ -281,12 +273,10 @@ export const usePOSStore = create<POSState>((set, get) => ({
 
   isOwner: false,
   setIsOwner: (isOwner) => set({ isOwner }),
-  availableBranches: [
-    { franchiseId: 'fra_rajnandgaon', branchId: 'main_branch', name: 'Olive Pizza — Rajnandgaon', code: 'OP-RJN-01', city: 'Rajnandgaon' }
-  ],
+  availableBranches: [],
   setAvailableBranches: (availableBranches) => set({ availableBranches }),
-  activeBranchId: localStorage.getItem('pos_branch_id') || 'main_branch',
-  activeFranchiseId: 'fra_primary',
+  activeBranchId: localStorage.getItem('pos_branch_id') || '',
+  activeFranchiseId: '',
   switchBranchContext: (branchId, franchiseId, branchName) => {
     localStorage.setItem('pos_branch_id', branchId);
     set((state) => ({
