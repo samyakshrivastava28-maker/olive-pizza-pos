@@ -8,6 +8,7 @@ import {
   X, Banknote, QrCode, CreditCard, Layers, CheckCircle2, 
   Printer, ArrowRight, Loader2, Sparkles 
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface PaymentModalProps {
   onClose: () => void;
@@ -49,6 +50,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
     setLoading(true);
     setError(null);
 
+    if (!session?.branchId || !session?.franchiseId) {
+      toast.error('POS session error: Missing branch or franchise scope.');
+      setLoading(false);
+      return;
+    }
+
     const paymentDetails: POSPaymentDetails = {
       method,
       cashReceived: method === 'CASH' ? cashReceived : undefined,
@@ -64,34 +71,34 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
       userId: isWalkinCustomer ? 'pos_counter_walkin' : (customerId || 'pos_customer'),
       customerId: isWalkinCustomer ? null : (customerId || null),
       orderSource,
-      tableNumber: orderSource === 'POS_DINE_IN' ? tableNumber : undefined,
       customerName: customerName || 'Walk-in Customer',
-      contactPhone: customerPhone || '9999999999',
-      deliveryAddress: orderSource === 'POS_DINE_IN' ? ('Dine-In Table ' + tableNumber) : 'Takeaway Counter',
-      items: items.map((it) => ({
-        id: it.productId,
-        name: it.name,
-        price: it.price,
-        quantity: it.quantity,
-        size: it.size,
-        crust: it.crust,
-        addons: it.addons,
-        instructions: it.kitchenNotes,
-      })),
-      discountAmount: calcs.discountAmount,
-      couponCode: couponCode || undefined,
-      deliveryFee: calcs.deliveryFee,
-      paymentMethod: method,
-      paymentDetails,
-      session: {
-        cashierName: session?.cashierName || 'Counter Cashier',
-        terminalId: session?.terminalId || 'POS-TERM-01',
-        branchId: session?.branchId || 'main_branch',
-        branchName: session?.branchName || 'Olive Pizza — Rajnandgaon HQ',
-        franchiseId: session?.franchiseId || 'fra_primary',
-        organizationId: session?.organizationId || 'org_olive_pizza',
-      },
-    };
+      customerPhone: customerPhone || 'N/A',
+      tableNumber: orderSource === 'POS_DINE_IN' ? tableNumber : undefined,
+        deliveryAddress: orderSource === 'POS_DINE_IN' ? ('Dine-In Table ' + tableNumber) : 'Takeaway Counter',
+        items: items.map((it) => ({
+          id: it.productId,
+          name: it.name,
+          price: it.price,
+          quantity: it.quantity,
+          size: it.size,
+          crust: it.crust,
+          addons: it.addons,
+          instructions: it.kitchenNotes,
+        })),
+        discountAmount: calcs.discountAmount,
+        couponCode: couponCode || undefined,
+        deliveryFee: calcs.deliveryFee,
+        paymentMethod: method,
+        paymentDetails,
+        session: {
+          cashierName: session.cashierName || 'Counter Cashier',
+          terminalId: session.terminalId || `pos_${session.franchiseId}`,
+          branchId: session.branchId,
+          branchName: session.branchName || 'Olive Pizza',
+          franchiseId: session.franchiseId,
+          organizationId: session.organizationId || 'org_olive_pizza',
+        },
+      };
 
     try {
       let orderId = '';
@@ -149,14 +156,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
         deliveryFee: calcs.deliveryFee,
         finalTotal: calcs.finalTotal,
         payment: paymentDetails,
-        session: session || {
-          cashierName: 'Counter Cashier',
-          cashierUid: 'pos_uid',
-          terminalId: 'POS-TERM-01',
-          branchId: 'main_branch',
-          branchName: 'Olive Pizza — Rajnandgaon HQ',
-          franchiseId: 'fra_primary',
-          organizationId: 'org_olive_pizza',
+        session: {
+          cashierName: session.cashierName || 'Counter Cashier',
+          cashierUid: session.cashierUid || 'pos_uid',
+          terminalId: session.terminalId || `pos_${session.franchiseId}`,
+          branchId: session.branchId,
+          branchName: session.branchName || 'Olive Pizza',
+          franchiseId: session.franchiseId,
+          organizationId: session.organizationId || 'org_olive_pizza',
         },
         createdAt: new Date().toISOString(),
       };

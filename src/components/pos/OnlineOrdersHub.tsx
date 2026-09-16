@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePOSStore } from '../../store/posStore';
 import { fetchPOSApi } from '../../lib/api';
 import { ThermalPrinterService } from '../../services/ThermalPrinterService';
+import { deviceAlarmService } from '../../services/DeviceAlarmService';
+import { posAlarmScheduler } from '../../services/POSAlarmScheduler';
 import { 
   Globe, 
   Clock, 
@@ -17,7 +19,9 @@ import {
   AlertCircle,
   CheckCircle2,
   ChefHat,
-  PackageCheck
+  PackageCheck,
+  Bell,
+  BellOff
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -26,11 +30,24 @@ export const OnlineOrdersHub: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [deviceAlarmOn, setDeviceAlarmOn] = useState(() => deviceAlarmService.isAlarmEnabled());
+  const [unackCount, setUnackCount] = useState(() => posAlarmScheduler.getUnacknowledgedCount());
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('Store busy / ingredients unavailable');
   const [actionLoading, setActionLoading] = useState(false);
   const previousPendingCount = useRef<number>(0);
+
+  useEffect(() => {
+    const unsubDevice = deviceAlarmService.subscribe((enabled) => setDeviceAlarmOn(enabled));
+    const unsubScheduler = posAlarmScheduler.subscribe(() => {
+      setUnackCount(posAlarmScheduler.getUnacknowledgedCount());
+    });
+    return () => {
+      unsubDevice();
+      unsubScheduler();
+    };
+  }, []);
 
   // Play audio chime when new online order arrives
   const playChime = () => {
@@ -60,6 +77,15 @@ export const OnlineOrdersHub: React.FC = () => {
         const data = await res.json();
         const incoming = data.orders || [];
         
+        // Sync with POS repeating alarm scheduler (5s audio loop)
+        posAlarmScheduler.syncIncomingOrders(
+          incoming.map((o: any) => ({
+            id: o.id,
+            status: o.order_status,
+            orderSource: 'CUSTOMER_APP'
+          }))
+        );
+
         // Count newly arrived pending orders
         const pendingCount = incoming.filter((o: any) => (o.order_status || '').toUpperCase() === 'PENDING').length;
         if (pendingCount > previousPendingCount.current) {
@@ -83,6 +109,8 @@ export const OnlineOrdersHub: React.FC = () => {
 
   const handleAcceptOrder = async (order: any) => {
     setActionLoading(true);
+    // Silence repeating alarm for this order immediately upon action
+    posAlarmScheduler.acknowledgeOrder(order.id);
     try {
       const res = await fetchPOSApi(`/api/pos/online-orders/${order.id}/accept`, {
         method: 'POST'
@@ -140,6 +168,8 @@ export const OnlineOrdersHub: React.FC = () => {
   const handleRejectOrder = async () => {
     if (!rejectingOrderId) return;
     setActionLoading(true);
+    // Silence repeating alarm for this order immediately upon action
+    posAlarmScheduler.acknowledgeOrder(rejectingOrderId);
     try {
       const res = await fetchPOSApi(`/api/pos/online-orders/${rejectingOrderId}/reject`, {
         method: 'POST',
@@ -219,15 +249,36 @@ export const OnlineOrdersHub: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {unackCount > 0 && (
+            <button
+              onClick={() => {
+                posAlarmScheduler.acknowledgeAll();
+                toast.success('Alarms silenced');
+              }}
+              className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-lg animate-pulse cursor-pointer"
+              title="Silence all ringing alarms"
+            >
+              <BellOff className="w-4 h-4" />
+              <span>Silence Alarm ({unackCount})</span>
+            </button>
+          )}
+
           <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
+            onClick={() => {
+              const next = !deviceAlarmOn;
+              deviceAlarmService.setAlarmEnabled(next);
+              setDeviceAlarmOn(next);
+              toast(next ? 'POS Order Alarm: ON' : 'POS Order Alarm: OFF', {
+                icon: next ? '🔔' : '🔕'
+              });
+            }}
             className={`p-2 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-              soundEnabled ? 'bg-zinc-800 border-zinc-700 text-zinc-200' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+              deviceAlarmOn ? 'bg-zinc-800 border-zinc-700 text-zinc-200' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
             }`}
-            title="Toggle Sound Alerts"
+            title="Toggle POS Order Alarm for this device"
           >
-            {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4" />}
-            <span className="hidden sm:inline">{soundEnabled ? 'Chime On' : 'Chime Muted'}</span>
+            {deviceAlarmOn ? <Bell className="w-4 h-4 text-emerald-400" /> : <BellOff className="w-4 h-4" />}
+            <span className="hidden sm:inline">Alarm: {deviceAlarmOn ? 'ON' : 'OFF'}</span>
           </button>
 
           <button
@@ -338,26 +389,41 @@ export const OnlineOrdersHub: React.FC = () => {
                     ))}
                   </div>
 
-                  {/* Actions: Accept & Reject Buttons */}
-                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-zinc-800">
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => setRejectingOrderId(order.id)}
-                      className="py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                      <span>Reject Order</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => handleAcceptOrder(order)}
-                      className="py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer"
-                    >
-                      <Check className="w-4 h-4 stroke-[3]" />
-                      <span>Accept & Send to Kitchen</span>
-                    </button>
+                  {/* Actions: Acknowledge, Accept & Reject Buttons */}
+                  <div className="flex flex-col gap-2 pt-1 border-t border-zinc-800">
+                    {!posAlarmScheduler.isOrderAcknowledged(order.id) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          posAlarmScheduler.acknowledgeOrder(order.id);
+                          toast('Alarm silenced for this order', { icon: '🔕' });
+                        }}
+                        className="w-full py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <BellOff className="w-3.5 h-3.5" />
+                        <span>Acknowledge Alarm</span>
+                      </button>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={actionLoading}
+                        onClick={() => setRejectingOrderId(order.id)}
+                        className="py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                        <span>Reject Order</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={actionLoading}
+                        onClick={() => handleAcceptOrder(order)}
+                        className="py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer"
+                      >
+                        <Check className="w-4 h-4 stroke-[3]" />
+                        <span>Accept & Send to Kitchen</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

@@ -180,7 +180,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
           const u = authData.user;
           const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer';
 
-          if (!isPrivileged && (!u.branchId || !u.franchiseId || !u.terminalId)) {
+          if (!u.branchId || !u.franchiseId) {
             await signOut(auth).catch(() => {});
             localStorage.removeItem('pos_session');
             sessionStorage.clear();
@@ -189,7 +189,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
               session: null,
               isAuthChecking: false,
               isAuthorized: false,
-              restrictedReason: 'POS terminal configuration incomplete. Missing server-assigned branch or franchise scope.',
+              restrictedReason: 'POS access denied: No authorized franchise or branch scope assigned to this account by the backend.',
               restrictedEmail: emailLower
             });
             return;
@@ -198,10 +198,10 @@ export const usePOSStore = create<POSState>((set, get) => ({
           const newSession: POSTerminalSession = {
             cashierName: u.name || firebaseUser.displayName || emailLower.split('@')[0] || 'Cashier',
             cashierUid: firebaseUser.uid,
-            terminalId: u.terminalId || terminalId || 'pos_term_unassigned',
-            branchId: u.branchId || (isPrivileged ? 'main_branch' : ''),
-            branchName: u.branchName || (isPrivileged ? 'Olive Pizza — Rajnandgaon (HQ)' : ''),
-            franchiseId: u.franchiseId || (isPrivileged ? 'fra_primary' : ''),
+            terminalId: u.terminalId || `pos_${u.franchiseId}`,
+            branchId: u.branchId,
+            branchName: u.branchName || 'Olive Pizza',
+            franchiseId: u.franchiseId,
             organizationId: u.organizationId || 'org_olive_pizza',
             role: u.role as any,
             isOwnerMode: isPrivileged

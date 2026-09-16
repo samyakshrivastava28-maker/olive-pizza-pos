@@ -41,14 +41,14 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
   const [confirmationResult, setConfirmationResult] = useState<any>(null);
   const [otpSent, setOtpSent] = useState(false);
   const [phoneLoading, setPhoneLoading] = useState(false);
-  const [terminalId] = useState(() => localStorage.getItem('pos_terminal_id') || 'pos_term_01');
-  const [branchId] = useState(() => localStorage.getItem('pos_branch_id') || 'main_branch');
+  const [terminalId] = useState(() => localStorage.getItem('pos_terminal_id') || '');
+  const [branchId] = useState(() => localStorage.getItem('pos_branch_id') || '');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [requestingReset, setRequestingReset] = useState(false);
 
   // Authorize User Role & Permissions via Server Gateway
-  const verifyUserAuthorization = async (user: FirebaseUser): Promise<{ isAuthorized: boolean; role: string; name: string; denialReason?: string }> => {
+  const verifyUserAuthorization = async (user: FirebaseUser): Promise<{ isAuthorized: boolean; user?: any; role: string; name: string; denialReason?: string }> => {
     const userEmail = (user.email || '').toLowerCase().trim();
 
     try {
@@ -61,8 +61,8 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
         },
         body: JSON.stringify({
           targetApp: 'POS',
-          terminalId,
-          requestedBranchId: branchId
+          terminalId: terminalId || undefined,
+          requestedBranchId: branchId || undefined
         })
       });
 
@@ -79,8 +79,17 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
 
       if (resp.ok && authData?.authorized) {
         const u = authData.user;
+        if (!u.branchId || !u.franchiseId) {
+          return {
+            isAuthorized: false,
+            role: 'none',
+            name: '',
+            denialReason: 'POS access denied: No authorized franchise or branch scope assigned to this account.'
+          };
+        }
         return {
           isAuthorized: true,
+          user: u,
           role: u.role || 'pos_operator',
           name: u.name || user.displayName || userEmail.split('@')[0]
         };
@@ -104,23 +113,33 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
     }
   };
 
-  const finalizeSession = (uid: string, cashierName: string, userRole = 'pos_operator') => {
-    localStorage.setItem('pos_terminal_id', terminalId);
-    localStorage.setItem('pos_branch_id', branchId);
+  const finalizeSession = (uid: string, cashierName: string, serverUser?: any) => {
+    const assignedFranchiseId = serverUser?.franchiseId;
+    const assignedBranchId = serverUser?.branchId;
+    const resolvedTerminalId = serverUser?.terminalId || `pos_${assignedFranchiseId}`;
+
+    if (!assignedFranchiseId || !assignedBranchId) {
+      toast.error('Access denied: No franchise or branch scope assigned to this account.');
+      return;
+    }
+
+    localStorage.setItem('pos_terminal_id', resolvedTerminalId);
+    localStorage.setItem('pos_branch_id', assignedBranchId);
+    localStorage.setItem('pos_franchise_id', assignedFranchiseId);
 
     setSession({
       cashierName,
       cashierUid: uid,
-      terminalId,
-      branchId,
-      branchName: 'Olive Pizza — Rajnandgaon HQ',
-      franchiseId: 'fra_rajnandgaon',
-      organizationId: 'org_olive_pizza',
-      role: userRole,
-      isOwnerMode: false
+      terminalId: resolvedTerminalId,
+      branchId: assignedBranchId,
+      branchName: serverUser?.branchName || 'Olive Pizza',
+      franchiseId: assignedFranchiseId,
+      organizationId: serverUser?.organizationId || 'org_olive_pizza',
+      role: serverUser?.role || 'pos_operator',
+      isOwnerMode: serverUser?.role === 'owner' || serverUser?.role === 'admin'
     });
 
-    toast.success(`Welcome ${cashierName}! Terminal ${terminalId} authenticated.`);
+    toast.success(`Welcome ${cashierName}! POS authenticated.`);
     requestPostLoginNotificationPermissions().catch(() => {});
     onLoginSuccess();
   };
@@ -139,22 +158,22 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
       const user = userCred.user;
 
       // Authorize with server
-      const { isAuthorized, role, name, denialReason } = await verifyUserAuthorization(user);
-      if (!isAuthorized) {
+      const authCheck = await verifyUserAuthorization(user);
+      if (!authCheck.isAuthorized) {
         await signOut(auth);
         usePOSStore.setState({
           user: null,
           session: null,
           isAuthorized: false,
-          restrictedReason: denialReason || 'Access Denied: Terminal restricted to authorized store staff.',
+          restrictedReason: authCheck.denialReason || 'Access Denied: Terminal restricted to authorized store staff.',
           restrictedEmail: user.email || ''
         });
-        toast.error(denialReason || 'Access Denied.');
+        toast.error(authCheck.denialReason || 'Access Denied.');
         setLoading(false);
         return;
       }
 
-      finalizeSession(user.uid, name, role);
+      finalizeSession(user.uid, authCheck.name, authCheck.user);
     } catch (err: any) {
       console.error('[POS Login Error]', err);
       const msg = err.code === 'auth/invalid-credential' ? 'Invalid email or password.' : (err.message || 'Login failed');
@@ -207,21 +226,21 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
       const res = await confirmationResult.confirm(phoneOtp);
       const user = res.user;
 
-      const { isAuthorized, role, name, denialReason } = await verifyUserAuthorization(user);
-      if (!isAuthorized) {
+      const authCheck = await verifyUserAuthorization(user);
+      if (!authCheck.isAuthorized) {
         await signOut(auth);
         usePOSStore.setState({
           user: null,
           session: null,
           isAuthorized: false,
-          restrictedReason: denialReason || 'Access Denied: Terminal restricted to authorized store staff.',
+          restrictedReason: authCheck.denialReason || 'Access Denied: Terminal restricted to authorized store staff.',
           restrictedEmail: user.phoneNumber || ''
         });
-        toast.error(denialReason || 'Access Denied.');
+        toast.error(authCheck.denialReason || 'Access Denied.');
         return;
       }
 
-      finalizeSession(user.uid, name, role);
+      finalizeSession(user.uid, authCheck.name, authCheck.user);
     } catch (err: any) {
       toast.error(err.message || 'Incorrect verification code');
     } finally {
@@ -249,21 +268,21 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
         user = userCred.user;
       }
 
-      const { isAuthorized, role, name, denialReason } = await verifyUserAuthorization(user);
-      if (!isAuthorized) {
+      const authCheck = await verifyUserAuthorization(user);
+      if (!authCheck.isAuthorized) {
         await signOut(auth);
         usePOSStore.setState({
           user: null,
           session: null,
           isAuthorized: false,
-          restrictedReason: denialReason || 'Access Denied: Terminal restricted to authorized store staff.',
+          restrictedReason: authCheck.denialReason || 'Access Denied: Terminal restricted to authorized store staff.',
           restrictedEmail: user.email || ''
         });
-        toast.error(denialReason || 'Access Denied.');
+        toast.error(authCheck.denialReason || 'Access Denied.');
         return;
       }
 
-      finalizeSession(user.uid, name, role);
+      finalizeSession(user.uid, authCheck.name, authCheck.user);
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user') {
         toast.error('Google Sign-In failed: ' + (err.message || 'Authentication error'));

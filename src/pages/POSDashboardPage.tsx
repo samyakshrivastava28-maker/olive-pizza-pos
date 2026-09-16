@@ -116,7 +116,11 @@ export function POSDashboardPage() {
       const [yearStr, monthStr] = selectedMonth.split('-');
       const monthNum = parseInt(monthStr, 10);
       const yearNum = parseInt(yearStr, 10);
-      const franchiseId = session?.franchiseId || 'fra_primary';
+      const franchiseId = session?.franchiseId;
+      if (!franchiseId) {
+        toast.error('No authorized franchise scope assigned to session.', { id: toastId });
+        return;
+      }
 
       const res = await fetchPOSApi('/api/reports/pdf/' + monthNum + '?year=' + yearNum + '&franchiseId=' + franchiseId);
       if (!res.ok) {
@@ -148,7 +152,11 @@ export function POSDashboardPage() {
       const [yearStr, monthStr] = selectedMonth.split('-');
       const monthNum = parseInt(monthStr, 10);
       const yearNum = parseInt(yearStr, 10);
-      const franchiseId = session?.franchiseId || 'fra_primary';
+      const franchiseId = session?.franchiseId;
+      if (!franchiseId) {
+        toast.error('No authorized franchise scope assigned to session.', { id: toastId });
+        return;
+      }
 
       const res = await fetchPOSApi('/api/reports/generate-monthly', {
         method: 'POST',

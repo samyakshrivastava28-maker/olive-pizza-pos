@@ -46,8 +46,9 @@ export default function POSPushNotificationManager() {
   // 2. Token Registration across Platforms
   const registerToken = useCallback(async () => {
     if (isRegisteredRef.current) return;
-    const branchId = session?.branchId || activeBranchId || 'main_branch';
-    const terminalId = session?.terminalId || 'terminal_main';
+    const branchId = session?.branchId || activeBranchId;
+    if (!branchId) return;
+    const terminalId = session?.terminalId || (session?.franchiseId ? `pos_${session.franchiseId}` : 'pos_system');
 
     try {
       // Electron Desktop App

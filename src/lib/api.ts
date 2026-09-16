@@ -15,14 +15,18 @@ async function getToken(): Promise<string | null> {
 
 export async function fetchPOSApi(endpoint: string, options: RequestInit = {}): Promise<Response> {
   const token = await getToken();
-  const terminalId = localStorage.getItem('pos_terminal_id') || 'pos_term_01';
-  const branchId = localStorage.getItem('pos_branch_id') || 'main_branch';
+  const terminalId = localStorage.getItem('pos_terminal_id') || '';
+  const branchId = localStorage.getItem('pos_branch_id') || '';
 
   const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
-  headers.set('x-terminal-id', terminalId);
-  headers.set('x-branch-id', branchId);
-  headers.set('x-device-id', terminalId);
+  if (terminalId) {
+    headers.set('x-terminal-id', terminalId);
+    headers.set('x-device-id', terminalId);
+  }
+  if (branchId) {
+    headers.set('x-branch-id', branchId);
+  }
   
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);

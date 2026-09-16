@@ -26,9 +26,10 @@ export const ProductStockDrawer: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  const branchId = session?.branchId || 'main_branch';
+  const branchId = session?.branchId || '';
 
   const loadStock = async () => {
+    if (!branchId) return;
     setLoading(true);
     try {
       const res = await fetchApi('/api/menu/branch/' + branchId + '/management');

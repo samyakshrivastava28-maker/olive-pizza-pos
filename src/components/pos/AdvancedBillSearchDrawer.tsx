@@ -146,10 +146,10 @@ export const AdvancedBillSearchDrawer: React.FC<AdvancedBillSearchDrawerProps> =
       session: {
         cashierName: order.cashier_name || session?.cashierName || 'Cashier',
         cashierUid: session?.cashierUid || 'pos_uid',
-        terminalId: order.terminal_id || session?.terminalId || 'POS-TERM-01',
-        branchId: order.branch_id || session?.branchId || 'main_branch',
+        terminalId: order.terminal_id || session?.terminalId || (session?.franchiseId ? `pos_${session.franchiseId}` : ''),
+        branchId: order.branch_id || session?.branchId || '',
         branchName: session?.branchName || 'Olive Pizza',
-        franchiseId: order.franchise_id || session?.franchiseId || 'fra_primary',
+        franchiseId: order.franchise_id || session?.franchiseId || '',
         organizationId: 'org_olive_pizza'
       },
       createdAt: order.created_at || new Date().toISOString()
