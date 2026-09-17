@@ -1,4 +1,4 @@
-name: Build iOS — POS
+name: Build iOS ï¿½ POS
 
 on:
   push:
@@ -57,7 +57,7 @@ jobs:
             sudo gem install cocoapods
             pod install --repo-update
           else
-            echo "Swift Package Manager project detected — skipping CocoaPods"
+            echo "Swift Package Manager project detected ï¿½ skipping CocoaPods"
           fi
 
       - name: Select Xcode version
@@ -85,14 +85,14 @@ jobs:
             2>&1 | xcpretty || true
 
       - name: Export Signed IPA (if signing secrets exist)
-        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          echo "Signing configured — exporting IPA..."
+          echo "Signing configured ï¿½ exporting IPA..."
           echo "$APPLE_CERTIFICATE_BASE64" | base64 -d > /tmp/certificate.p12
           echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 -d > /tmp/profile.mobileprovision
           security create-keychain -p "" build.keychain
@@ -128,6 +128,8 @@ jobs:
             mkdir -p /tmp/Payload
             cp -r "$ARCHIVE_PATH/Products/Applications/"*.app /tmp/Payload/ || true
             if [ -d "/tmp/Payload" ] && [ "$(ls -A /tmp/Payload)" ]; then
+              echo "Applying ad-hoc signature to satisfy Mach-O binary requirements..."
+              codesign --force --deep --sign - /tmp/Payload/*.app || true
               cd /tmp
               zip -r "${{ github.workspace }}/release-ios/${IPA_NAME}" Payload
               cd ${{ github.workspace }}
@@ -156,7 +158,7 @@ jobs:
 
           # Ensure 'latest' release exists or create it
           gh release view latest --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || \
-            gh release create latest --repo "${GITHUB_REPOSITORY}" --title "Olive Pizza POS — Latest Release" --notes "Latest official builds for Olive Pizza POS."
+            gh release create latest --repo "${GITHUB_REPOSITORY}" --title "Olive Pizza POS ï¿½ Latest Release" --notes "Latest official builds for Olive Pizza POS."
 
           # Delete ANY old iOS assets from 'latest' release so only the latest commit file exists
           OLD_IOS=$(gh release view latest --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[] | select(.name | test("(\\.(ipa|zip)$)|xcarchive")) | .name')
