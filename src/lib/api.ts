@@ -1,6 +1,16 @@
+import { Capacitor } from '@capacitor/core';
 import { auth } from './firebase';
 
-export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || 'https://olivepizza-owner.onrender.com';
+export const PRODUCTION_BACKEND_URL = 'https://olivepizza-owner.onrender.com';
+export const BACKEND_URL = (
+  Capacitor.isNativePlatform() ||
+  (typeof window !== 'undefined' && (
+    window.location.protocol === 'file:' ||
+    window.location.protocol === 'capacitor:' ||
+    window.location.protocol === 'ionic:' ||
+    navigator.userAgent.includes('Electron')
+  ))
+) ? PRODUCTION_BACKEND_URL : (import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || PRODUCTION_BACKEND_URL);
 
 async function getToken(): Promise<string | null> {
   if (auth.currentUser) {
