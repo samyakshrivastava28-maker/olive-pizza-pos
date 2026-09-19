@@ -43,6 +43,12 @@
 * Registers terminal ID and branch ID for scoped notification delivery.
 * Replays missed incoming order events upon network recovery using monotonic sequence numbers.
 
+### 🧾 6. Perpetual Transactional Billing System (#1, #2, #3...)
+* **Unbroken Monotonic Numbering**: Every completed POS bill receives an atomic, perpetual sequential bill number (`#1, #2, #3...`) generated via `billing.repository.ts`.
+* **Zero Disconnect Resets**: Bill numbers never reset on date changes or terminal restarts, ensuring 100% accounting and tax audit compliance.
+* **Source Separation**: Tagged explicitly with `source: 'POS'`, terminal ID, and cashier ID, distinct from online customer orders.
+
+
 ---
 
 ## 🏗️ Technical Architecture & Stack
