@@ -3,6 +3,7 @@ import { usePOSStore } from '../store/posStore';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { fetchApi } from '../lib/api';
+import { getPOSWebSocketUrl } from '../lib/api';
 import { NotificationPermissionManager } from '../lib/NotificationPermissionManager';
 import { SoundAlertEngine } from '../lib/SoundAlertEngine';
 import { NotificationDeduplicator } from '../lib/NotificationDeduplicator';
@@ -110,6 +111,21 @@ export default function POSPushNotificationManager() {
         PushNotifications.addListener('pushNotificationReceived', (notification) => {
           console.log('[POS PushManager] Push received in foreground:', notification);
           SoundAlertEngine.playSound('new_online_order');
+          const data = (notification.data || {}) as Record<string, any>;
+          let parsedOrder: any = null;
+          if (data.fullOrderJson) {
+            try {
+              parsedOrder = typeof data.fullOrderJson === 'string' ? JSON.parse(data.fullOrderJson) : data.fullOrderJson;
+            } catch {}
+          }
+          const orderNo = parsedOrder?.orderNumber || data.orderNumber || data.dailyOrderNumber || data.orderId?.slice(-6).toUpperCase() || 'NEW';
+          const amount = parsedOrder?.pricing?.total || data.finalTotal || data.totalAmount || 0;
+          const payment = (parsedOrder?.payment?.status || data.paymentStatus || '').toUpperCase() === 'PAID' ? 'PAID' : 'COD';
+          toast(`🍕 Online Order #${orderNo} received! (₹${amount} • ${payment})`, {
+            icon: '🔔',
+            duration: 6000,
+            style: { background: '#0F172A', color: '#38BDF8', border: '1px solid #0284C7' }
+          });
         });
 
         await PushNotifications.register();
@@ -241,6 +257,115 @@ export default function POSPushNotificationManager() {
     });
 
     return () => unsubscribe();
+  }, [session, activeBranchId]);
+
+  // 6. Resilient WebSocket listener with Monotonic Sequence Sync for dropped Wi-Fi
+  useEffect(() => {
+    const branchId = session?.branchId || activeBranchId;
+    if (!branchId) return;
+    const franchiseId = session?.franchiseId || 'default';
+    const terminalId = session?.terminalId || 'pos_terminal';
+
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: any = null;
+    let isDisposed = false;
+    let lastSeq = 0;
+
+    function connect() {
+      if (isDisposed) return;
+      try {
+        const wsUrl = `${getPOSWebSocketUrl()}?branchId=${encodeURIComponent(branchId)}&franchiseId=${encodeURIComponent(franchiseId)}&terminalId=${encodeURIComponent(terminalId)}`;
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          console.log('[POS PushManager] WS connected for live online orders');
+          // Register terminal & branch
+          ws?.send(JSON.stringify({
+            type: 'register_branch',
+            branchId,
+            franchiseId,
+            terminalId
+          }));
+          // Reconnection sync
+          if (lastSeq > 0) {
+            ws?.send(JSON.stringify({
+              type: 'sync_request',
+              branchId,
+              franchiseId,
+              lastSequence: lastSeq
+            }));
+          }
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.seq && typeof msg.seq === 'number') {
+              lastSeq = Math.max(lastSeq, msg.seq);
+            }
+
+            // Sync response replay
+            if (msg.type === 'sync_response' && Array.isArray(msg.data?.missedEvents)) {
+              for (const missed of msg.data.missedEvents) {
+                if (missed.type === 'order.created' && missed.data) {
+                  const o = missed.data;
+                  const eventId = `pos_ws:${o.orderId}`;
+                  if (NotificationDeduplicator.shouldProcess(eventId)) {
+                    SoundAlertEngine.playSound('new_online_order');
+                    toast(`🍕 Missed Online Order #${o.orderNumber} replayed! (₹${o.pricing?.total || 0})`, {
+                      icon: '🔔',
+                      duration: 6000,
+                      style: { background: '#0F172A', color: '#38BDF8', border: '1px solid #0284C7' }
+                    });
+                  }
+                }
+              }
+              if (typeof msg.data?.currentSeq === 'number') {
+                lastSeq = Math.max(lastSeq, msg.data.currentSeq);
+              }
+            }
+
+            // Live order.created event
+            if (msg.type === 'order.created' && msg.data) {
+              const o = msg.data;
+              const eventId = `pos_ws:${o.orderId}`;
+              if (NotificationDeduplicator.shouldProcess(eventId)) {
+                SoundAlertEngine.playSound('new_online_order');
+                toast(`🍕 Online Order #${o.orderNumber} received! (₹${o.pricing?.total || 0})`, {
+                  icon: '🔔',
+                  duration: 6000,
+                  style: { background: '#0F172A', color: '#38BDF8', border: '1px solid #0284C7' }
+                });
+              }
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        };
+
+        ws.onclose = () => {
+          if (!isDisposed) {
+            reconnectTimeout = setTimeout(connect, 3000);
+          }
+        };
+
+        ws.onerror = () => {
+          ws?.close();
+        };
+      } catch (err) {
+        if (!isDisposed) {
+          reconnectTimeout = setTimeout(connect, 5000);
+        }
+      }
+    }
+
+    connect();
+
+    return () => {
+      isDisposed = true;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (ws) ws.close();
+    };
   }, [session, activeBranchId]);
 
   return (

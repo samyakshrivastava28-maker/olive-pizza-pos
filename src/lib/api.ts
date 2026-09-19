@@ -12,6 +12,20 @@ export const BACKEND_URL = (
   ))
 ) ? PRODUCTION_BACKEND_URL : (import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || PRODUCTION_BACKEND_URL);
 
+export function getPOSWebSocketUrl(): string {
+  if (BACKEND_URL.startsWith('https://')) {
+    return BACKEND_URL.replace('https://', 'wss://') + '/ws';
+  }
+  if (BACKEND_URL.startsWith('http://')) {
+    return BACKEND_URL.replace('http://', 'ws://') + '/ws';
+  }
+  if (typeof window !== 'undefined') {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${window.location.host}/ws`;
+  }
+  return 'wss://olivepizza-owner.onrender.com/ws';
+}
+
 async function getToken(): Promise<string | null> {
   if (auth.currentUser) {
     return auth.currentUser.getIdToken();
