@@ -11,7 +11,7 @@ import POSPushNotificationManager from './services/POSPushNotificationManager';
 import { POSPinUnlockScreen } from './components/pos/POSPinUnlockScreen';
 
 export function App() {
-  const { session, user, isAuthChecking, isAuthorized, restrictedReason, restrictedEmail, clearRestricted, initAuth, logout } = usePOSStore();
+  const { session, user, isAuthChecking, isAuthorized, authStatus, restrictedReason, restrictedEmail, clearRestricted, initAuth, logout } = usePOSStore();
   const [isPinUnlocked, setIsPinUnlocked] = React.useState<boolean>(() => {
     return sessionStorage.getItem('pos_pin_unlocked') === 'true';
   });
@@ -38,6 +38,7 @@ export function App() {
         appName="Olive Pizza POS & Billing"
         userEmail={restrictedEmail || undefined}
         reason={restrictedReason}
+        status={authStatus}
         onRetry={() => {
           clearRestricted();
           initAuth();

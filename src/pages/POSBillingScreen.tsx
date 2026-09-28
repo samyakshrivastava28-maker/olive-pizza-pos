@@ -24,17 +24,6 @@ interface POSBillingScreenProps {
   onLogout: () => void;
 }
 
-const FALLBACK_PRODUCTS: POSProduct[] = [
-  { id: 'prod_margherita', name: 'Classic Margherita', category: 'Veg Pizzas', price: 199, basePrice: 199, isVegetarian: true, isAvailable: true, imageUrl: 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=400', description: 'Fresh mozzarella & basil' },
-  { id: 'prod_farmhouse', name: 'Farmhouse Delight', category: 'Veg Pizzas', price: 299, basePrice: 299, isVegetarian: true, isAvailable: true, imageUrl: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400', description: 'Capsicum, mushroom, tomato & onion' },
-  { id: 'prod_paneer_tikka', name: 'Peppy Paneer Tikka', category: 'Veg Pizzas', price: 349, basePrice: 349, isVegetarian: true, isAvailable: true, imageUrl: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400', description: 'Tandoori paneer with red paprika' },
-  { id: 'prod_cheese_burst', name: 'Ultimate Cheese Burst', category: 'Veg Pizzas', price: 399, basePrice: 399, isVegetarian: true, isAvailable: true, imageUrl: 'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=400', description: 'Molten cheese crust with golden corn' },
-  { id: 'prod_chicken_fiesta', name: 'Chicken Golden Delight', category: 'Non-Veg Pizzas', price: 379, basePrice: 379, isVegetarian: false, isAvailable: true, imageUrl: 'https://images.unsplash.com/photo-1628840042765-356cda07504e?w=400', description: 'Barbeque chicken with extra cheese' },
-  { id: 'prod_garlic_bread', name: 'Stuffed Garlic Bread', category: 'Sides & Garlic Bread', price: 149, basePrice: 149, isVegetarian: true, isAvailable: true, imageUrl: 'https://images.unsplash.com/photo-1619881589880-e34927f8c92e?w=400', description: 'Garlic breadsticks with cheese dip' },
-  { id: 'prod_coke', name: 'Coca-Cola (500ml)', category: 'Beverages & Shakes', price: 60, basePrice: 60, isVegetarian: true, isAvailable: true, imageUrl: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=400', description: 'Chilled soft drink' },
-  { id: 'prod_choco_lava', name: 'Choco Lava Cake', category: 'Pastas & Desserts', price: 109, basePrice: 109, isVegetarian: true, isAvailable: true, imageUrl: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=400', description: 'Molten chocolate center cake' },
-];
-
 export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) => {
   const { 
     addItem, 
@@ -51,7 +40,8 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
     holdCurrentBill
   } = usePOSStore();
   
-  const [products, setProducts] = useState<POSProduct[]>(FALLBACK_PRODUCTS);
+  const [products, setProducts] = useState<POSProduct[]>([]);
+  const [isProductsLoading, setIsProductsLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<POSProduct | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [billingMode, setBillingMode] = useState<'PHYSICAL' | 'ONLINE'>('PHYSICAL');
@@ -77,13 +67,16 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
         const res = await fetchPOSApi(`/api/pos/menu?branchId=${activeBranchId}&franchiseId=${activeFranchiseId}`);
         if (res.ok) {
           const data = await res.json();
-          if (isSubscribed && data.items && Array.isArray(data.items) && data.items.length > 0) {
+            if (isSubscribed && data.items && Array.isArray(data.items) && data.items.length > 0) {
             setProducts(data.items);
+            setIsProductsLoading(false);
             return;
           }
         }
       } catch (err) {
         console.warn('Could not fetch server branch menu, falling back to local list:', err);
+      } finally {
+        if (isSubscribed) setIsProductsLoading(false);
       }
     };
 
@@ -123,6 +116,7 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
 
             if (liveItems.length > 0 && isSubscribed) {
               setProducts(liveItems);
+              setIsProductsLoading(false);
             }
           }
         }, (err) => {

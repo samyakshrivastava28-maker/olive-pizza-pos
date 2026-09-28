@@ -13,6 +13,7 @@ interface POSState {
   session: POSTerminalSession | null;
   isAuthChecking: boolean;
   isAuthorized: boolean;
+  authStatus?: 'APPROVED' | 'PENDING_OWNER_APPROVAL' | 'ACCOUNT_REJECTED' | 'ACCOUNT_DEACTIVATED' | null;
   restrictedReason: string | null;
   restrictedEmail: string | null;
   clearRestricted: () => void;
@@ -130,6 +131,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
   session: null,
   isAuthChecking: true,
   isAuthorized: false,
+  authStatus: null,
   restrictedReason: null,
   restrictedEmail: null,
   clearRestricted: () => set({ restrictedReason: null, restrictedEmail: null }),
@@ -150,7 +152,8 @@ export const usePOSStore = create<POSState>((set, get) => ({
           user: null,
           session: null,
           isAuthChecking: false,
-          isAuthorized: false
+          isAuthorized: false,
+          authStatus: null
         });
         return;
       }
@@ -189,6 +192,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
               session: null,
               isAuthChecking: false,
               isAuthorized: false,
+              authStatus: null,
               restrictedReason: 'POS access denied: No authorized franchise or branch scope assigned to this account by the backend.',
               restrictedEmail: emailLower
             });
@@ -212,6 +216,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
             session: newSession,
             isAuthChecking: false,
             isAuthorized: true,
+            authStatus: 'APPROVED',
             restrictedReason: null,
             restrictedEmail: null,
             isOwner: newSession.isOwnerMode,
@@ -219,19 +224,25 @@ export const usePOSStore = create<POSState>((set, get) => ({
             activeFranchiseId: newSession.franchiseId
           });
         } else {
-          // Explicitly unauthorized account — wipe session and enforce immediate sign out
+          // Explicitly unauthorized or pending account
           const denialReason = authData?.reason || 'This account is not authorized to use this Olive Pizza application.';
-          console.warn('[POSStore] Access restricted for account:', emailLower, denialReason);
+          const code = authData?.code || 'UNAUTHORIZED';
+          console.warn('[POSStore] Access restricted for account:', emailLower, code, denialReason);
 
-          await signOut(auth).catch(() => {});
+          const isPending = code === 'PENDING_OWNER_APPROVAL';
+          if (!isPending) {
+            await signOut(auth).catch(() => {});
+          }
+
           localStorage.removeItem('pos_session');
           sessionStorage.clear();
 
           set({
-            user: null,
+            user: isPending ? firebaseUser : null,
             session: null,
             isAuthChecking: false,
             isAuthorized: false,
+            authStatus: isPending ? 'PENDING_OWNER_APPROVAL' : code === 'ACCOUNT_REJECTED' ? 'ACCOUNT_REJECTED' : code === 'ACCOUNT_REVOKED' ? 'ACCOUNT_DEACTIVATED' : null,
             restrictedReason: denialReason,
             restrictedEmail: emailLower
           });
@@ -239,16 +250,13 @@ export const usePOSStore = create<POSState>((set, get) => ({
       } catch (err: any) {
         console.error('[POSStore] Auth handshake network error:', err);
 
-        // Absolute Server Authority: Never synthesize offline sessions or bypass server check
-        await signOut(auth).catch(() => {});
-        localStorage.removeItem('pos_session');
-        sessionStorage.clear();
         set({
-          user: null,
+          user: firebaseUser,
           session: null,
           isAuthChecking: false,
           isAuthorized: false,
-          restrictedReason: 'Server verification required. Terminal access cannot be granted while server is unreachable.',
+          authStatus: null,
+          restrictedReason: 'Server verification required. Terminal access cannot be granted while server is unreachable. Please check your connection and retry.',
           restrictedEmail: emailLower
         });
       }
