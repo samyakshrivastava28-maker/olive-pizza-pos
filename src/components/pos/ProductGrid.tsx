@@ -195,7 +195,7 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ products, searchRef, o
                     <div>
                       <span className="text-[10px] text-zinc-500 block uppercase font-bold">Price</span>
                       <span className="font-mono font-black text-amber-400 text-base">
-                        ₹{p.price || p.basePrice || 249}
+                        ₹{Number(p.price ?? p.basePrice ?? 0)}
                       </span>
                     </div>
 

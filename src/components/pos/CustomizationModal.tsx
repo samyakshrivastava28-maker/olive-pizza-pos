@@ -17,27 +17,6 @@ interface CustomizationModalProps {
   }) => void;
 }
 
-const DEFAULT_SIZES = [
-  { name: '8" Regular', price: 0 },
-  { name: '10" Medium', price: 90 },
-  { name: '12" Large', price: 180 },
-];
-
-const DEFAULT_CRUSTS = [
-  { name: 'Classic Hand-Tossed', price: 0 },
-  { name: 'Thin & Crispy', price: 40 },
-  { name: 'Cheese Burst', price: 80 },
-];
-
-const DEFAULT_ADDONS: POSCartItemAddon[] = [
-  { id: 'extra_cheese', name: 'Extra Mozzarella Cheese', price: 60 },
-  { id: 'paneer', name: 'Fresh Paneer Cubes', price: 50 },
-  { id: 'olives', name: 'Sliced Black Olives', price: 40 },
-  { id: 'mushrooms', name: 'Grilled Mushrooms', price: 40 },
-  { id: 'jalapenos', name: 'Pickled Jalapenos', price: 30 },
-  { id: 'capsicum', name: 'Crispy Capsicum', price: 30 },
-];
-
 const QUICK_INSTRUCTION_CHIPS = [
   'No Onion',
   'No Capsicum',
@@ -50,10 +29,26 @@ const QUICK_INSTRUCTION_CHIPS = [
 ];
 
 export const CustomizationModal: React.FC<CustomizationModalProps> = ({ product, onClose, onAdd }) => {
-  const isPizza = product.category.toLowerCase().includes('pizza') || !product.category;
-  
-  const [selectedSize, setSelectedSize] = useState(DEFAULT_SIZES[1]); // Default 10" Medium
-  const [selectedCrust, setSelectedCrust] = useState(DEFAULT_CRUSTS[0]);
+  const isPizza = product.category?.toLowerCase().includes('pizza') ?? false;
+
+  const availableSizes = (product.sizes && product.sizes.length > 0)
+    ? product.sizes
+    : (product.variants && product.variants.length > 0)
+      ? product.variants
+      : [{ name: 'Standard', price: 0 }];
+
+  const availableCrusts = (product.crusts && product.crusts.length > 0)
+    ? product.crusts
+    : [{ name: 'Classic Hand-Tossed', price: 0 }];
+
+  const availableAddons: POSCartItemAddon[] = (product.addons && product.addons.length > 0)
+    ? product.addons
+    : (product.availableAddons && product.availableAddons.length > 0)
+      ? product.availableAddons
+      : [];
+
+  const [selectedSize, setSelectedSize] = useState(availableSizes[0]);
+  const [selectedCrust, setSelectedCrust] = useState(availableCrusts[0]);
   const [selectedAddons, setSelectedAddons] = useState<POSCartItemAddon[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [kitchenNotes, setKitchenNotes] = useState('');
@@ -74,10 +69,12 @@ export const CustomizationModal: React.FC<CustomizationModalProps> = ({ product,
     }
   };
 
-  const basePrice = product.price || product.basePrice || 229;
-  const addonsTotal = selectedAddons.reduce((sum, a) => sum + a.price, 0);
+  const basePrice = Number(product.price ?? product.basePrice ?? 0);
+  const sizePrice = Number(selectedSize?.price || 0);
+  const crustPrice = Number(selectedCrust?.price || 0);
+  const addonsTotal = selectedAddons.reduce((sum, a) => sum + Number(a.price || 0), 0);
   const itemUnitPrice = isPizza
-    ? basePrice + selectedSize.price + selectedCrust.price + addonsTotal
+    ? basePrice + sizePrice + crustPrice + addonsTotal
     : basePrice + addonsTotal;
   const itemFinalTotal = itemUnitPrice * quantity;
 
@@ -120,13 +117,13 @@ export const CustomizationModal: React.FC<CustomizationModalProps> = ({ product,
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {/* Pizza Size */}
-          {isPizza && (
+          {isPizza && availableSizes.length > 0 && (
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-2">
                 1. Select Size
               </label>
               <div className="grid grid-cols-3 gap-2.5">
-                {DEFAULT_SIZES.map((sz) => {
+                {availableSizes.map((sz) => {
                   const isSelected = selectedSize.name === sz.name;
                   return (
                     <button
@@ -156,13 +153,13 @@ export const CustomizationModal: React.FC<CustomizationModalProps> = ({ product,
           )}
 
           {/* Pizza Crust */}
-          {isPizza && (
+          {isPizza && availableCrusts.length > 0 && (
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-2">
                 2. Select Crust
               </label>
               <div className="grid grid-cols-3 gap-2.5">
-                {DEFAULT_CRUSTS.map((cr) => {
+                {availableCrusts.map((cr) => {
                   const isSelected = selectedCrust.name === cr.name;
                   return (
                     <button
@@ -192,40 +189,42 @@ export const CustomizationModal: React.FC<CustomizationModalProps> = ({ product,
           )}
 
           {/* Extra Addons */}
-          <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-2">
-              {isPizza ? '3. Extra Toppings & Cheese' : 'Add-ons & Extras'}
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {DEFAULT_ADDONS.map((ad) => {
-                const isSelected = selectedAddons.some((a) => a.id === ad.id);
-                return (
-                  <button
-                    key={ad.id}
-                    type="button"
-                    onClick={() => toggleAddon(ad)}
-                    className={`p-2.5 rounded-xl border text-left flex items-center justify-between transition active:scale-95 ${
-                      isSelected
-                        ? 'bg-emerald-500/10 border-emerald-500 text-white ring-1 ring-emerald-500/40'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800/40'
-                    }`}
-                  >
-                    <div>
-                      <div className="text-xs font-medium text-zinc-200">{ad.name}</div>
-                      <div className="text-[11px] text-emerald-400 font-mono font-bold">+₹{ad.price}</div>
-                    </div>
-                    <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${
-                      isSelected
-                        ? 'bg-emerald-500 border-emerald-500 text-zinc-950'
-                        : 'border-zinc-700 bg-zinc-900'
-                    }`}>
-                      {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
-                    </div>
-                  </button>
-                );
-              })}
+          {availableAddons.length > 0 && (
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-2">
+                {isPizza ? '3. Extra Toppings & Cheese' : 'Add-ons & Extras'}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {availableAddons.map((ad) => {
+                  const isSelected = selectedAddons.some((a) => a.id === ad.id);
+                  return (
+                    <button
+                      key={ad.id}
+                      type="button"
+                      onClick={() => toggleAddon(ad)}
+                      className={`p-2.5 rounded-xl border text-left flex items-center justify-between transition active:scale-95 ${
+                        isSelected
+                          ? 'bg-emerald-500/10 border-emerald-500 text-white ring-1 ring-emerald-500/40'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800/40'
+                      }`}
+                    >
+                      <div>
+                        <div className="text-xs font-medium text-zinc-200">{ad.name}</div>
+                        <div className="text-[11px] text-emerald-400 font-mono font-bold">+₹{ad.price}</div>
+                      </div>
+                      <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${
+                        isSelected
+                          ? 'bg-emerald-500 border-emerald-500 text-zinc-950'
+                          : 'border-zinc-700 bg-zinc-900'
+                      }`}>
+                        {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Quick Kitchen Instructions */}
           <div>

@@ -18,6 +18,7 @@ import { UtensilsCrossed, Globe, ShoppingBag } from 'lucide-react';
 import { OnlineOrderPrintListener } from '../services/OnlineOrderPrintListener';
 import { OfflineBillingQueueService } from '../services/OfflineBillingQueueService';
 import { ThermalPrinterService } from '../services/ThermalPrinterService';
+import { PosIndexedDbService } from '../services/PosIndexedDbService';
 import { fetchPOSApi } from '../lib/api';
 
 interface POSBillingScreenProps {
@@ -67,14 +68,27 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
         const res = await fetchPOSApi(`/api/pos/menu?branchId=${activeBranchId}&franchiseId=${activeFranchiseId}`);
         if (res.ok) {
           const data = await res.json();
-            if (isSubscribed && data.items && Array.isArray(data.items) && data.items.length > 0) {
+          if (isSubscribed && data.items && Array.isArray(data.items) && data.items.length > 0) {
             setProducts(data.items);
             setIsProductsLoading(false);
+            PosIndexedDbService.saveBranchCatalog(activeBranchId, activeFranchiseId, data.items);
             return;
           }
         }
       } catch (err) {
-        console.warn('Could not fetch server branch menu, falling back to local list:', err);
+        console.warn('Could not fetch server branch menu, checking IndexedDB cache:', err);
+      }
+
+      // Check IndexedDB persistent cache if server unreachable or offline
+      try {
+        const cached = await PosIndexedDbService.getBranchCatalog(activeBranchId);
+        if (isSubscribed && cached && cached.length > 0) {
+          setProducts(cached);
+          setIsProductsLoading(false);
+          return;
+        }
+      } catch (idbErr) {
+        console.warn('IndexedDB cache retrieval notice:', idbErr);
       } finally {
         if (isSubscribed) setIsProductsLoading(false);
       }
@@ -117,6 +131,7 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
             if (liveItems.length > 0 && isSubscribed) {
               setProducts(liveItems);
               setIsProductsLoading(false);
+              PosIndexedDbService.saveBranchCatalog(activeBranchId, activeFranchiseId, liveItems);
             }
           }
         }, (err) => {

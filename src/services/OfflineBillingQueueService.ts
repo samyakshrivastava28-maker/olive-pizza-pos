@@ -12,6 +12,7 @@ import { fetchPOSApi } from '../lib/api';
 import { POSCompletedBill } from '../types/pos';
 import { usePOSStore } from '../store/posStore';
 import { ThermalPrinterService } from './ThermalPrinterService';
+import { PosIndexedDbService } from './PosIndexedDbService';
 import toast from 'react-hot-toast';
 
 const OFFLINE_QUEUE_KEY = 'olive_pos_offline_bills';
@@ -33,7 +34,7 @@ export class OfflineBillingQueueService {
   }
 
   /**
-   * Enqueues an offline-settled bill to the persistent queue.
+   * Enqueues an offline-settled bill to persistent storage (both IndexedDB and LocalStorage fallback).
    */
   public static enqueueOfflineBill(bill: POSCompletedBill): void {
     try {
@@ -49,6 +50,10 @@ export class OfflineBillingQueueService {
 
       queue.push(enrichedBill);
       localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+
+      // Persist to robust IndexedDB store
+      PosIndexedDbService.enqueueBill(enrichedBill, idempotencyKey);
+
       console.log(`📦 [OfflineQueue] Enqueued offline bill #${bill.billNumber}. Total in queue: ${queue.length}`);
     } catch (e) {
       console.error('Failed to write offline bill to storage:', e);
@@ -63,7 +68,15 @@ export class OfflineBillingQueueService {
       return { synced: 0, remaining: this.getOfflineQueue().length };
     }
 
-    const queue = this.getOfflineQueue();
+    let queue = this.getOfflineQueue();
+    if (queue.length === 0) {
+      // Check IndexedDB pending records as well
+      const pendingIdb = await PosIndexedDbService.getPendingBills();
+      if (pendingIdb.length > 0) {
+        queue = pendingIdb.map((p) => ({ ...p.bill, idempotencyKey: p.idempotencyKey }));
+      }
+    }
+
     if (queue.length === 0) {
       return { synced: 0, remaining: 0 };
     }
@@ -82,6 +95,14 @@ export class OfflineBillingQueueService {
         
         // Clear local queue upon success
         localStorage.removeItem(OFFLINE_QUEUE_KEY);
+
+        // Mark individual bills as synced in IndexedDB
+        for (const item of queue) {
+          if (item.idempotencyKey) {
+            await PosIndexedDbService.markBillSynced(item.idempotencyKey);
+          }
+        }
+
         toast.success(`⚡ Reconnected: ${queue.length} offline bills synchronized!`, { id: 'offline-sync-success' });
         
         return { synced: queue.length, remaining: 0 };
