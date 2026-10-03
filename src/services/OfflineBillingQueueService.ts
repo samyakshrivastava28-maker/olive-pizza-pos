@@ -93,19 +93,44 @@ export class OfflineBillingQueueService {
         const data = await res.json();
         console.log('✅ [OfflineQueue] Sync result:', data);
         
-        // Clear local queue upon success
-        localStorage.removeItem(OFFLINE_QUEUE_KEY);
-
-        // Mark individual bills as synced in IndexedDB
-        for (const item of queue) {
-          if (item.idempotencyKey) {
-            await PosIndexedDbService.markBillSynced(item.idempotencyKey);
+        // Extract set of successfully acknowledged idempotency keys
+        const acknowledgedKeys = new Set<string>();
+        if (Array.isArray(data.results)) {
+          for (const item of data.results) {
+            if (item.success || item.status === 'SYNCED' || item.status === 'ALREADY_SYNCED') {
+              if (item.idempotencyKey) acknowledgedKeys.add(item.idempotencyKey);
+            }
+          }
+        } else {
+          // Fallback if results array omitted: assume all queued items succeeded
+          for (const item of queue) {
+            if (item.idempotencyKey) acknowledgedKeys.add(item.idempotencyKey);
           }
         }
 
-        toast.success(`⚡ Reconnected: ${queue.length} offline bills synchronized!`, { id: 'offline-sync-success' });
+        // Retain only unacknowledged / failed bills in localStorage queue
+        const currentQueue = this.getOfflineQueue();
+        const remainingQueue = currentQueue.filter((b: any) => !acknowledgedKeys.has(b.idempotencyKey));
+        if (remainingQueue.length === 0) {
+          localStorage.removeItem(OFFLINE_QUEUE_KEY);
+        } else {
+          localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remainingQueue));
+        }
+
+        // Mark individual confirmed bills as synced in IndexedDB
+        for (const key of acknowledgedKeys) {
+          await PosIndexedDbService.markBillSynced(key);
+        }
+
+        const syncedCount = acknowledgedKeys.size;
+        if (syncedCount > 0) {
+          toast.success(`⚡ Reconnected: ${syncedCount} offline bills synchronized!`, { id: 'offline-sync-success' });
+        }
+        if (remainingQueue.length > 0) {
+          toast.error(`⚠️ ${remainingQueue.length} bills could not be synchronized yet. Will retry automatically.`, { id: 'offline-sync-partial' });
+        }
         
-        return { synced: queue.length, remaining: 0 };
+        return { synced: syncedCount, remaining: remainingQueue.length };
       } else {
         console.warn('⚠️ [OfflineQueue] Sync endpoint returned non-OK status:', res.status);
       }
