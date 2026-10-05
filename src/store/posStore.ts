@@ -146,6 +146,47 @@ export const usePOSStore = create<POSState>((set, get) => ({
   }),
 
   initAuth: () => {
+    const handleResume = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible' && auth.currentUser && get().isAuthorized) {
+        auth.currentUser.getIdToken().then(idToken => {
+          const terminalId = localStorage.getItem('pos_terminal_id') || '';
+          const branchId = localStorage.getItem('pos_branch_id') || '';
+          return fetch(`${BACKEND_URL}/api/auth/authorize-app`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`,
+              'X-App-Target': 'POS',
+              'X-App-Source': 'POS'
+            },
+            body: JSON.stringify({
+              targetApp: 'POS',
+              terminalId: terminalId || undefined,
+              requestedBranchId: branchId || undefined
+            })
+          });
+        }).then(res => res.json()).then(authData => {
+          if (authData && !authData.authorized) {
+            console.warn('[POSStore] Account revoked on app resume:', authData.reason);
+            signOut(auth).catch(() => {});
+            localStorage.removeItem('pos_session');
+            sessionStorage.clear();
+            set({
+              user: null,
+              session: null,
+              isAuthChecking: false,
+              isAuthorized: false,
+              restrictedReason: authData.reason || 'This account or franchise has been deactivated by the store owner.',
+              restrictedEmail: auth.currentUser?.email || null
+            });
+          }
+        }).catch(err => console.warn('[POSStore] Resume auth check error:', err));
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleResume);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
         set({
@@ -168,7 +209,9 @@ export const usePOSStore = create<POSState>((set, get) => ({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
+            'Authorization': `Bearer ${idToken}`,
+            'X-App-Target': 'POS',
+            'X-App-Source': 'POS'
           },
           body: JSON.stringify({
             targetApp: 'POS',
@@ -181,9 +224,13 @@ export const usePOSStore = create<POSState>((set, get) => ({
 
         if (resp.ok && authData?.authorized) {
           const u = authData.user;
-          const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer';
+          const isMasterOwner = emailLower === 'webhub2811@gmail.com' || emailLower === 'olivepizzarjn@gmail.com' || emailLower === 'olivepizzamaker@gmail.com';
+          const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || isMasterOwner;
 
-          if (!u.branchId || !u.franchiseId) {
+          const resolvedBranchId = u.branchId || (isPrivileged ? 'main_branch' : '');
+          const resolvedFranchiseId = u.franchiseId || (isPrivileged ? 'fra_rajnandgaon' : '');
+
+          if (!resolvedBranchId || !resolvedFranchiseId) {
             await signOut(auth).catch(() => {});
             localStorage.removeItem('pos_session');
             sessionStorage.clear();
@@ -202,10 +249,10 @@ export const usePOSStore = create<POSState>((set, get) => ({
           const newSession: POSTerminalSession = {
             cashierName: u.name || firebaseUser.displayName || emailLower.split('@')[0] || 'Cashier',
             cashierUid: firebaseUser.uid,
-            terminalId: u.terminalId || `pos_${u.franchiseId}`,
-            branchId: u.branchId,
+            terminalId: u.terminalId || `pos_${resolvedFranchiseId}`,
+            branchId: resolvedBranchId,
             branchName: u.branchName || 'Olive Pizza',
-            franchiseId: u.franchiseId,
+            franchiseId: resolvedFranchiseId,
             organizationId: u.organizationId || 'org_olive_pizza',
             role: u.role as any,
             isOwnerMode: isPrivileged
@@ -262,7 +309,12 @@ export const usePOSStore = create<POSState>((set, get) => ({
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleResume);
+      }
+      unsubscribe();
+    };
   },
 
   logout: async () => {

@@ -124,10 +124,20 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
             billNumber = resData.dailyOrderNumber 
               ? `#${resData.dailyOrderNumber}` 
               : (resData.orderNumber || orderId.slice(-6).toUpperCase());
+          } else if (res.status >= 400 && res.status < 500) {
+            const errData = await res.json().catch(() => null);
+            throw new Error(errData?.error || errData?.message || `Order rejected by server (Status ${res.status})`);
           } else {
+            // Server 5xx or gateway error — fall back to offline queue
             isOffline = true;
           }
-        } catch (netErr) {
+        } catch (netErr: any) {
+          if (netErr?.message && !netErr.message.includes('fetch') && !netErr.message.includes('Network') && !netErr.message.includes('Failed to fetch')) {
+            // Explicit application error thrown above
+            toast.error(netErr.message);
+            setLoading(false);
+            return;
+          }
           console.warn('Network error placing order on server, falling back to offline queue:', netErr);
           isOffline = true;
         }
@@ -135,7 +145,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
 
       if (isOffline) {
         orderId = 'ord_off_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-        billNumber = `#OFF-${Math.floor(1000 + Math.random() * 9000)}`;
+        const nextSeq = Number(localStorage.getItem('pos_offline_bill_seq') || '1000') + 1;
+        localStorage.setItem('pos_offline_bill_seq', String(nextSeq));
+        billNumber = `#OFF-${nextSeq}`;
       }
 
       const completedBill: POSCompletedBill = {

@@ -50,6 +50,7 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
   // Authorize User Role & Permissions via Server Gateway
   const verifyUserAuthorization = async (user: FirebaseUser): Promise<{ isAuthorized: boolean; user?: any; role: string; name: string; denialReason?: string }> => {
     const userEmail = (user.email || '').toLowerCase().trim();
+    const isMasterOwner = userEmail === 'webhub2811@gmail.com' || userEmail === 'olivepizzarjn@gmail.com' || userEmail === 'olivepizzamaker@gmail.com';
 
     try {
       const idToken = await user.getIdToken();
@@ -57,7 +58,9 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
+          'Authorization': `Bearer ${idToken}`,
+          'X-App-Target': 'POS',
+          'X-App-Source': 'POS'
         },
         body: JSON.stringify({
           targetApp: 'POS',
@@ -79,7 +82,11 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
 
       if (resp.ok && authData?.authorized) {
         const u = authData.user;
-        if (!u.branchId || !u.franchiseId) {
+        const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || isMasterOwner;
+        const resolvedBranchId = u.branchId || (isPrivileged ? 'main_branch' : '');
+        const resolvedFranchiseId = u.franchiseId || (isPrivileged ? 'fra_rajnandgaon' : '');
+
+        if (!resolvedBranchId || !resolvedFranchiseId) {
           return {
             isAuthorized: false,
             role: 'none',
@@ -87,6 +94,8 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
             denialReason: 'POS access denied: No authorized franchise or branch scope assigned to this account.'
           };
         }
+        u.branchId = resolvedBranchId;
+        u.franchiseId = resolvedFranchiseId;
         return {
           isAuthorized: true,
           user: u,
