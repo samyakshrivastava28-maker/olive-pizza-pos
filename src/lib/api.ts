@@ -44,6 +44,12 @@ export async function fetchPOSApi(endpoint: string, options: RequestInit = {}): 
 
   const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
+  if (!headers.has('X-App-Target')) {
+    headers.set('X-App-Target', 'POS');
+  }
+  if (!headers.has('X-App-Source')) {
+    headers.set('X-App-Source', 'POS');
+  }
   if (terminalId) {
     headers.set('x-terminal-id', terminalId);
     headers.set('x-device-id', terminalId);
