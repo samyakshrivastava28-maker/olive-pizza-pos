@@ -11,6 +11,7 @@ import { Bell, Volume2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
+import { ThermalPrinterService } from './ThermalPrinterService';
 
 export default function POSPushNotificationManager() {
   const { session, user, activeBranchId } = usePOSStore();
@@ -241,6 +242,9 @@ export default function POSPushNotificationManager() {
                 }
               });
 
+              // Trigger auto-print kitchen receipt if enabled
+              ThermalPrinterService.autoPrintOnlineOrder(order).catch(() => {});
+
               if (typeof window !== 'undefined' && (window as any).electronAPI?.showNativeNotification) {
                 (window as any).electronAPI.showNativeNotification({
                   title: `Online Order #${order.dailyOrderNumber || order.orderNumber || order.id.slice(-6).toUpperCase()}`,
@@ -336,6 +340,7 @@ export default function POSPushNotificationManager() {
                   duration: 6000,
                   style: { background: '#0F172A', color: '#38BDF8', border: '1px solid #0284C7' }
                 });
+                ThermalPrinterService.autoPrintOnlineOrder(o).catch(() => {});
               }
             }
           } catch (e) {

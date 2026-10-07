@@ -160,6 +160,55 @@ export class ThermalPrinterService {
     }
   }
 
+  static async autoPrintOnlineOrder(order: any): Promise<{ success: boolean; error?: string }> {
+    const config = this.getConfig();
+    if (config.autoPrintOnline === false) return { success: true };
+    const orderId = order.id || order.orderId;
+    if (!orderId || this.isAlreadyPrinted(orderId)) return { success: true };
+
+    const receiptData: ReceiptRenderData = {
+      orderId,
+      billNumber: order.billNumber || order.orderNumber || orderId.slice(-6).toUpperCase(),
+      permanentBillNo: order.permanentBillNo,
+      dailyOrderNumber: order.dailyOrderNumber,
+      orderSource: order.orderSource || 'ONLINE',
+      orderType: order.orderType || 'ONLINE DELIVERY',
+      branchName: order.branchName || 'Olive Pizza',
+      branchAddress: order.branchAddress,
+      branchPhone: order.branchPhone,
+      customerName: order.customerName || order.userName || 'Online Customer',
+      customerPhone: order.customerPhone || order.userPhone,
+      deliveryAddress: typeof order.deliveryAddress === 'object' ? order.deliveryAddress?.address : (order.deliveryAddress || ''),
+      cashierName: 'Online System',
+      terminalId: 'ONLINE',
+      items: (order.items || []).map((it: any) => ({
+        name: it.name || it.productName,
+        quantity: it.quantity || 1,
+        price: it.price || 0,
+        size: it.size,
+        crust: it.crust,
+        addons: Array.isArray(it.addons) ? it.addons.map((a: any) => typeof a === 'string' ? a : a.name) : []
+      })),
+      subtotal: order.subtotal || order.totalAmount || 0,
+      discount: order.discountAmount || 0,
+      tax: order.taxAmount || 0,
+      deliveryFee: order.deliveryFee || 0,
+      total: order.finalTotal || order.totalAmount || 0,
+      paymentMethod: order.paymentMethod || 'ONLINE',
+      paymentStatus: (order.paymentStatus || 'PAID').toUpperCase(),
+      createdAt: order.createdAt || new Date().toISOString()
+    };
+
+    const res = await this.printReceipt(receiptData);
+    if (res.success) {
+      this.markAsPrinted(orderId);
+      this.dequeueFailedPrint(orderId);
+    } else {
+      this.enqueueFailedPrint(receiptData);
+    }
+    return res;
+  }
+
   static async retryPendingPrints(): Promise<number> {
     if (this.pendingPrintQueue.length === 0) return 0;
     let printedCount = 0;

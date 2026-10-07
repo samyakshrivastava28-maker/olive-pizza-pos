@@ -19,6 +19,8 @@ const OFFLINE_QUEUE_KEY = 'olive_pos_offline_bills';
 let isSyncing = false;
 let heartbeatInterval: any = null;
 let autoSyncInterval: any = null;
+let onlineListener: (() => void) | null = null;
+let offlineListener: (() => void) | null = null;
 
 export class OfflineBillingQueueService {
   /**
@@ -39,7 +41,7 @@ export class OfflineBillingQueueService {
   public static enqueueOfflineBill(bill: POSCompletedBill): void {
     try {
       const queue = this.getOfflineQueue();
-      const idempotencyKey = `offline_${bill.session?.terminalId || 'TERM'}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const idempotencyKey = (bill as any).idempotencyKey || `offline_${bill.session?.terminalId || 'TERM'}_${bill.billNumber}_${bill.createdAt || Date.now()}`;
       
       const enrichedBill = {
         ...bill,
@@ -102,10 +104,7 @@ export class OfflineBillingQueueService {
             }
           }
         } else {
-          // Fallback if results array omitted: assume all queued items succeeded
-          for (const item of queue) {
-            if (item.idempotencyKey) acknowledgedKeys.add(item.idempotencyKey);
-          }
+          console.warn('⚠️ [OfflineQueue] Backend sync response did not provide results array; retaining queue for retry');
         }
 
         // Retain only unacknowledged / failed bills in localStorage queue
@@ -202,21 +201,27 @@ export class OfflineBillingQueueService {
       }
     }, 20000);
 
-    // 4. Online event listener
-    window.addEventListener('online', () => {
-      console.log('🌐 [OfflineBillingQueueService] Network connection restored! Triggering immediate sync...');
-      this.sendHeartbeat();
-      this.syncQueue();
-      ThermalPrinterService.retryPendingPrints().catch(() => {});
-    });
+    // 4. Online and offline event listeners
+    if (!onlineListener) {
+      onlineListener = () => {
+        console.log('🌐 [OfflineBillingQueueService] Network connection restored! Triggering immediate sync...');
+        OfflineBillingQueueService.sendHeartbeat();
+        OfflineBillingQueueService.syncQueue();
+        ThermalPrinterService.retryPendingPrints().catch(() => {});
+      };
+      window.addEventListener('online', onlineListener);
+    }
 
-    window.addEventListener('offline', () => {
-      console.warn('⚠️ [OfflineBillingQueueService] Network connection lost. Offline billing activated.');
-      toast('⚠️ Offline Mode: Billing will continue locally and sync automatically when connection returns.', {
-        id: 'offline-alert',
-        duration: 4000
-      });
-    });
+    if (!offlineListener) {
+      offlineListener = () => {
+        console.warn('⚠️ [OfflineBillingQueueService] Network connection lost. Offline billing activated.');
+        toast('⚠️ Offline Mode: Billing will continue locally and sync automatically when connection returns.', {
+          id: 'offline-alert',
+          duration: 4000
+        });
+      };
+      window.addEventListener('offline', offlineListener);
+    }
   }
 
   public static stopBackgroundWorkers(): void {
@@ -227,6 +232,14 @@ export class OfflineBillingQueueService {
     if (autoSyncInterval) {
       clearInterval(autoSyncInterval);
       autoSyncInterval = null;
+    }
+    if (onlineListener) {
+      window.removeEventListener('online', onlineListener);
+      onlineListener = null;
+    }
+    if (offlineListener) {
+      window.removeEventListener('offline', offlineListener);
+      offlineListener = null;
     }
   }
 }
