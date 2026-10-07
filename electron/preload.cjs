@@ -10,5 +10,13 @@ contextBridge.exposeInMainWorld('posHardware', {
   maximize: () => ipcRenderer.invoke('window-maximize'),
   toggleFullscreen: () => ipcRenderer.invoke('window-toggle-fullscreen'),
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
-  close: () => ipcRenderer.invoke('window-close')
+  close: () => ipcRenderer.invoke('window-close'),
+  startBrowserAuth: (authUrl) => ipcRenderer.invoke('start-browser-auth', { authUrl }),
+  openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url)
+});
+
+contextBridge.exposeInMainWorld('electronAuth', {
+  isDesktop: true,
+  startBrowserAuth: (authUrl) => ipcRenderer.invoke('start-browser-auth', { authUrl }),
+  openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url)
 });

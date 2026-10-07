@@ -5,6 +5,7 @@ import {
   signInWithEmailAndPassword, 
   signInWithPopup, 
   signInWithCredential,
+  signInWithCustomToken,
   GoogleAuthProvider, 
   signOut,
   RecaptchaVerifier,
@@ -262,6 +263,11 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
     setGoogleLoading(true);
     try {
       let user: FirebaseUser | null = null;
+      const isElectron = Boolean(
+        typeof window !== 'undefined' && 
+        ((window as any).posHardware?.isDesktopPOS || (window as any).electronAuth?.isDesktop)
+      );
+
       if (Capacitor.isNativePlatform()) {
         const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
         const res = await FirebaseAuthentication.signInWithGoogle();
@@ -270,6 +276,30 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
         const credential = GoogleAuthProvider.credential(idToken);
         const userCred = await signInWithCredential(auth, credential);
         user = userCred.user;
+      } else if (isElectron && (window as any).posHardware?.startBrowserAuth) {
+        // Desktop Electron: Authenticate via System Browser to bypass Chromium/file:// restrictions
+        toast.loading('Opening system browser to authenticate...', { id: 'browser-auth' });
+        const authUrl = `${BACKEND_URL}/api/auth/desktop-login?app=POS`;
+        const authResult = await (window as any).posHardware.startBrowserAuth(authUrl);
+
+        if (!authResult || !authResult.success) {
+          toast.dismiss('browser-auth');
+          throw new Error(authResult?.error || 'Authentication via browser was cancelled or timed out.');
+        }
+
+        toast.loading('Finalizing desktop session...', { id: 'browser-auth' });
+        if (authResult.customToken) {
+          const userCred = await signInWithCustomToken(auth, authResult.customToken);
+          user = userCred.user;
+        } else if (authResult.idToken) {
+          const credential = GoogleAuthProvider.credential(authResult.idToken);
+          const userCred = await signInWithCredential(auth, credential);
+          user = userCred.user;
+        } else {
+          toast.dismiss('browser-auth');
+          throw new Error('No authentication credential received from browser callback.');
+        }
+        toast.dismiss('browser-auth');
       } else {
         const provider = new GoogleAuthProvider();
         provider.setCustomParameters({ prompt: 'select_account' });
