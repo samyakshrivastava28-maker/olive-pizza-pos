@@ -51,6 +51,19 @@ export class POSAlarmScheduler {
     const activeIds = new Set<string>();
 
     for (const ord of orders) {
+      const id = String(ord.id || '').toLowerCase();
+      if (
+        id.startsWith('test_') ||
+        id.startsWith('mock_') ||
+        id.startsWith('synthetic_') ||
+        id.startsWith('dummy_') ||
+        id.startsWith('online_test_') ||
+        id.startsWith('ord_test_') ||
+        (ord as any).isTest === true
+      ) {
+        continue;
+      }
+
       const isOnline = ord.orderSource === 'CUSTOMER_APP' || ord.orderSource === 'ONLINE' || !ord.orderSource;
       const isActionable = ['CONFIRMED', 'PENDING', 'ACCEPTED', 'KITCHEN', 'PREPARING'].includes((ord.status || '').toUpperCase());
 

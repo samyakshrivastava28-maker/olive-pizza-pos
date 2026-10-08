@@ -13,6 +13,27 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
 import { ThermalPrinterService } from './ThermalPrinterService';
 
+// ── SYNTHETIC / TEST ORDER SAFEGUARD ──────────────────────────────────
+// Prevent test/mock/synthetic orders from ringing POS chime or printing receipts
+function isSyntheticOrder(orderId?: string, data?: any): boolean {
+  const id = String(orderId || data?.id || data?.orderId || '').toLowerCase();
+  if (
+    id.startsWith('test_') ||
+    id.startsWith('mock_') ||
+    id.startsWith('synthetic_') ||
+    id.startsWith('dummy_') ||
+    id.startsWith('online_test_') ||
+    id.startsWith('ord_test_')
+  ) {
+    return true;
+  }
+  if (data?.isTest === true) return true;
+  if (data?.customerName && /^(test|mock|synthetic|dummy|fake|archival test|idempotency test)/i.test(data.customerName)) return true;
+  if (data?.orderNumber && /test/i.test(String(data.orderNumber))) return true;
+  if (data?.orderSource && /test|mock/i.test(String(data.orderSource))) return true;
+  return false;
+}
+
 export default function POSPushNotificationManager() {
   const { session, user, activeBranchId } = usePOSStore();
   const [showPromptBanner, setShowPromptBanner] = useState(false);
@@ -111,8 +132,9 @@ export default function POSPushNotificationManager() {
 
         PushNotifications.addListener('pushNotificationReceived', (notification) => {
           console.log('[POS PushManager] Push received in foreground:', notification);
-          SoundAlertEngine.playSound('new_online_order');
           const data = (notification.data || {}) as Record<string, any>;
+          if (isSyntheticOrder(data.orderId || data.id, data)) return;
+          SoundAlertEngine.playSound('new_online_order');
           let parsedOrder: any = null;
           if (data.fullOrderJson) {
             try {
@@ -226,6 +248,7 @@ export default function POSPushNotificationManager() {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const order = { id: change.doc.id, ...change.doc.data() } as any;
+          if (isSyntheticOrder(order.id, order)) return;
           // Filter out orders that originated directly on this local POS terminal
           if (order.orderSource !== 'POS_BILLING' && order.orderSource !== 'POS_DINE_IN' && order.orderSource !== 'POS_TAKEAWAY') {
             const eventId = `pos_order:${order.id}:${order.version || 1}`;
@@ -313,6 +336,7 @@ export default function POSPushNotificationManager() {
               for (const missed of msg.data.missedEvents) {
                 if (missed.type === 'order.created' && missed.data) {
                   const o = missed.data;
+                  if (isSyntheticOrder(o.orderId || o.id, o)) continue;
                   const eventId = `pos_ws:${o.orderId}`;
                   if (NotificationDeduplicator.shouldProcess(eventId)) {
                     SoundAlertEngine.playSound('new_online_order');
@@ -332,15 +356,17 @@ export default function POSPushNotificationManager() {
             // Live order.created event
             if (msg.type === 'order.created' && msg.data) {
               const o = msg.data;
-              const eventId = `pos_ws:${o.orderId}`;
-              if (NotificationDeduplicator.shouldProcess(eventId)) {
-                SoundAlertEngine.playSound('new_online_order');
-                toast(`🍕 Online Order #${o.orderNumber} received! (₹${o.pricing?.total || 0})`, {
-                  icon: '🔔',
-                  duration: 6000,
-                  style: { background: '#0F172A', color: '#38BDF8', border: '1px solid #0284C7' }
-                });
-                ThermalPrinterService.autoPrintOnlineOrder(o).catch(() => {});
+              if (!isSyntheticOrder(o.orderId || o.id, o)) {
+                const eventId = `pos_ws:${o.orderId}`;
+                if (NotificationDeduplicator.shouldProcess(eventId)) {
+                  SoundAlertEngine.playSound('new_online_order');
+                  toast(`🍕 Online Order #${o.orderNumber} received! (₹${o.pricing?.total || 0})`, {
+                    icon: '🔔',
+                    duration: 6000,
+                    style: { background: '#0F172A', color: '#38BDF8', border: '1px solid #0284C7' }
+                  });
+                  ThermalPrinterService.autoPrintOnlineOrder(o).catch(() => {});
+                }
               }
             }
           } catch (e) {
