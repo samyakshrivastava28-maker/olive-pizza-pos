@@ -62,11 +62,91 @@ export async function fetchPOSApi(endpoint: string, options: RequestInit = {}): 
   });
 }
 
-export async function fetchApi<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetchPOSApi(endpoint, options);
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || `HTTP ${res.status}`);
+export interface CacheOptions {
+  ttlMs?: number;
+  forceRefresh?: boolean;
+}
+
+const inFlightRequests = new Map<string, Promise<any>>();
+const memoryCache = new Map<string, { data: any; expiresAt: number }>();
+
+export function invalidatePOSCache(pattern?: string | RegExp): void {
+  if (!pattern) {
+    memoryCache.clear();
+    return;
   }
-  return res.json();
+  for (const key of memoryCache.keys()) {
+    if (typeof pattern === 'string' ? key.includes(pattern) : pattern.test(key)) {
+      memoryCache.delete(key);
+    }
+  }
+}
+
+export async function fetchApi<T = any>(
+  endpoint: string,
+  options: RequestInit = {},
+  cacheOptions?: CacheOptions
+): Promise<T> {
+  const method = (options.method || 'GET').toUpperCase();
+  const isGet = method === 'GET';
+  const cleanKey = `GET:${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const ttlMs = cacheOptions?.ttlMs ?? 0;
+  const forceRefresh = cacheOptions?.forceRefresh ?? false;
+
+  if (isGet && !forceRefresh && ttlMs > 0) {
+    const cached = memoryCache.get(cleanKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data;
+    }
+  }
+
+  if (isGet && !forceRefresh && inFlightRequests.has(cleanKey)) {
+    return inFlightRequests.get(cleanKey);
+  }
+
+  const executionPromise = (async () => {
+    try {
+      const res = await fetchPOSApi(endpoint, options);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+
+      if (isGet && ttlMs > 0) {
+        memoryCache.set(cleanKey, {
+          data,
+          expiresAt: Date.now() + ttlMs,
+        });
+      }
+
+      return data as T;
+    } finally {
+      inFlightRequests.delete(cleanKey);
+    }
+  })();
+
+  if (isGet) {
+    inFlightRequests.set(cleanKey, executionPromise);
+  }
+
+  return executionPromise;
+}
+
+// ─── POS SMART BOOTSTRAP AGGREGATOR HELPER ────────────────────────────────────
+
+export interface POSBootstrapResponse {
+  success: boolean;
+  catalog: any[];
+  tables: any[];
+  heldCarts: any[];
+  shiftSummary: any;
+}
+
+export async function fetchPOSBootstrap(forceRefresh = false): Promise<POSBootstrapResponse> {
+  return fetchApi<POSBootstrapResponse>(
+    '/api/v1/pos/bootstrap',
+    { method: 'GET' },
+    { ttlMs: 30000, forceRefresh }
+  );
 }
