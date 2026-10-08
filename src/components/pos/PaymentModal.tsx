@@ -16,6 +16,7 @@ interface PaymentModalProps {
 }
 
 const QUICK_CASH_DENOMS = [100, 200, 500, 1000, 2000];
+const UPI_VPA = import.meta.env.VITE_UPI_VPA || 'olivepizza.rjn@okaxis';
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteBill }) => {
   const {
@@ -345,7 +346,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
             <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 text-center space-y-3">
               <div className="w-36 h-36 mx-auto bg-white p-2 rounded-xl shadow-inner flex items-center justify-center">
                 <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=olivepizza.rjn@okaxis&pn=OlivePizza&am=${calcs.finalTotal}&cu=INR`}
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=${UPI_VPA}&pn=OlivePizza&am=${calcs.finalTotal}&cu=INR`}
                   alt="UPI QR Code"
                   className="w-full h-full object-contain"
                 />
@@ -354,7 +355,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
                 Customer scans with <span className="text-amber-400 font-bold">GPay, PhonePe, Paytm</span>
               </div>
               <div className="font-mono text-xs text-zinc-500 bg-zinc-900 py-1.5 px-3 rounded-lg inline-block border border-zinc-800">
-                UPI ID: olivepizza.rjn@okaxis
+                UPI ID: {UPI_VPA}
               </div>
             </div>
           )}
