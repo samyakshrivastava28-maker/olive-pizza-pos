@@ -39,6 +39,16 @@ export interface ReceiptRenderData {
   isReprint?: boolean;
 }
 
+function escapeHtml(str: any): string {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export class ThermalPrinterService {
   private static defaultConfig: PrinterConfig = {
     printerName: 'Default Thermal Printer',
@@ -261,18 +271,33 @@ export class ThermalPrinterService {
     const isPaid = data.paymentStatus?.toUpperCase() === 'PAID';
 
     const itemsHtml = data.items.map(item => {
-      const addonsStr = item.addons && item.addons.length > 0 ? ('<div style="font-size:9px;color:#555;padding-left:8px;">+ ' + item.addons.join(', ') + '</div>') : '';
-      const variantStr = (item.size || item.crust) ? ('<div style="font-size:9px;color:#555;padding-left:8px;">(' + [item.size, item.crust].filter(Boolean).join(' • ') + ')</div>') : '';
+      const addonsStr = item.addons && item.addons.length > 0 ? ('<div style="font-size:9px;color:#555;padding-left:8px;">+ ' + item.addons.map(a => escapeHtml(a)).join(', ') + '</div>') : '';
+      const variantItems = [item.size, item.crust].filter(Boolean).map(v => escapeHtml(v));
+      const variantStr = variantItems.length > 0 ? ('<div style="font-size:9px;color:#555;padding-left:8px;">(' + variantItems.join(' • ') + ')</div>') : '';
       return (
         '<div style="display:flex;justify-content:space-between;padding:2px 0;">' +
           '<div style="flex:1;">' +
-            '<span>' + item.quantity + 'x ' + item.name + '</span>' +
+            '<span>' + escapeHtml(item.quantity) + 'x ' + escapeHtml(item.name) + '</span>' +
             variantStr + addonsStr +
           '</div>' +
           '<span style="font-weight:bold;margin-left:8px;">₹' + (item.price * item.quantity).toFixed(0) + '</span>' +
         '</div>'
       );
     }).join('');
+
+    const safeBranch = escapeHtml(data.branchName || 'Kitchen');
+    const safeBranchPhone = data.branchPhone ? escapeHtml(data.branchPhone) : '';
+    const safeGst = data.gstNumber ? escapeHtml(data.gstNumber) : '';
+    const safePermBill = data.permanentBillNo != null ? escapeHtml(data.permanentBillNo) : '—';
+    const safeDailyOrd = data.dailyOrderNumber ? escapeHtml(data.dailyOrderNumber) : escapeHtml(data.billNumber);
+    const safeOrderType = escapeHtml(data.orderType ? data.orderType.toUpperCase() : 'TAKEAWAY');
+    const safeTable = data.tableNumber ? escapeHtml(data.tableNumber) : '';
+    const safeCustName = data.customerName ? escapeHtml(data.customerName) : '';
+    const safeCustPhone = data.customerPhone ? escapeHtml(data.customerPhone) : '';
+    const safeAddr = data.deliveryAddress ? escapeHtml(data.deliveryAddress) : '';
+    const safeCashier = escapeHtml(data.cashierName || 'Staff');
+    const safeTerminal = escapeHtml(data.terminalId || 'POS-1');
+    const safePayMethod = data.paymentMethod ? escapeHtml(data.paymentMethod.toUpperCase()) : 'CASH';
 
     return [
       '<!DOCTYPE html>',
@@ -294,18 +319,18 @@ export class ThermalPrinterService {
           (data.isReprint ? '<div class="badge">*** DUPLICATE REPRINT ***</div><br>' : ''),
           (isOnline ? '<div class="badge">ONLINE ORDER — KITCHEN BILL</div><br>' : ''),
           '<strong style="font-size:14px;letter-spacing:1px;">OLIVE PIZZA</strong><br>',
-          '<span>' + data.branchName + '</span><br>',
-          (data.branchPhone ? '<span>Tel: ' + data.branchPhone + '</span><br>' : ''),
-          (data.gstNumber ? '<span style="font-size:9px;">GSTIN: ' + data.gstNumber + '</span>' : ''),
+          '<span>' + safeBranch + '</span><br>',
+          (safeBranchPhone ? '<span>Tel: ' + safeBranchPhone + '</span><br>' : ''),
+          (safeGst ? '<span style="font-size:9px;">GSTIN: ' + safeGst + '</span>' : ''),
         '</div>',
         '<div class="border-b" style="font-size:10px;">',
-          '<div class="flex-between bold" style="font-size:11px;"><span>PERM BILL: #' + (data.permanentBillNo ?? '—') + '</span><span>DAILY ORD: ' + (data.dailyOrderNumber ? '#' + data.dailyOrderNumber : data.billNumber) + '</span></div>',
-          '<div class="flex-between"><span>CHANNEL:</span><span>' + data.orderType.toUpperCase() + '</span></div>',
+          '<div class="flex-between bold" style="font-size:11px;"><span>PERM BILL: #' + safePermBill + '</span><span>DAILY ORD: #' + safeDailyOrd + '</span></div>',
+          '<div class="flex-between"><span>CHANNEL:</span><span>' + safeOrderType + '</span></div>',
           '<div class="flex-between"><span>' + new Date(data.createdAt).toLocaleDateString('en-IN') + '</span><span>' + new Date(data.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + '</span></div>',
-          (data.tableNumber ? '<div class="bold">TABLE: ' + data.tableNumber + '</div>' : ''),
-          (data.customerName ? '<div>CUST: ' + data.customerName + (data.customerPhone ? ' (' + data.customerPhone + ')' : '') + '</div>' : ''),
-          (data.deliveryAddress ? '<div style="font-size:9px;">ADDR: ' + data.deliveryAddress + '</div>' : ''),
-          '<div style="font-size:9px;color:#333;">CASHIER: ' + data.cashierName + ' • ' + data.terminalId + '</div>',
+          (safeTable ? '<div class="bold">TABLE: ' + safeTable + '</div>' : ''),
+          (safeCustName ? '<div>CUST: ' + safeCustName + (safeCustPhone ? ' (' + safeCustPhone + ')' : '') + '</div>' : ''),
+          (safeAddr ? '<div style="font-size:9px;">ADDR: ' + safeAddr + '</div>' : ''),
+          '<div style="font-size:9px;color:#333;">CASHIER: ' + safeCashier + ' • ' + safeTerminal + '</div>',
         '</div>',
         '<div class="border-b">',
           itemsHtml,
@@ -318,7 +343,7 @@ export class ThermalPrinterService {
           '<div class="flex-between bold" style="font-size:13px;padding-top:4px;"><span>TOTAL:</span><span>₹' + data.total.toFixed(2) + '</span></div>',
         '</div>',
         '<div class="text-center border-b">',
-          '<div class="bold" style="font-size:11px;">STATUS: ' + (isPaid ? (isOnline ? 'PAID ONLINE (DO NOT CHARGE)' : 'PAID (' + data.paymentMethod + ')') : 'PAYMENT DUE: CASH') + '</div>',
+          '<div class="bold" style="font-size:11px;">STATUS: ' + (isPaid ? (isOnline ? 'PAID ONLINE (DO NOT CHARGE)' : 'PAID (' + safePayMethod + ')') : 'PAYMENT DUE: CASH') + '</div>',
         '</div>',
         '<div class="text-center" style="font-size:9px;padding-top:4px;">',
           '<span>Thank you for dining with Olive Pizza!</span><br>',
