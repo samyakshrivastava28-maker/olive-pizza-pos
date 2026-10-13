@@ -1,4 +1,4 @@
-name: Build iOS � POS
+name: Build iOS - POS
 
 on:
   push:
