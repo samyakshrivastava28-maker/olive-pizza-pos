@@ -19,7 +19,7 @@ import { OnlineOrderPrintListener } from '../services/OnlineOrderPrintListener';
 import { OfflineBillingQueueService } from '../services/OfflineBillingQueueService';
 import { ThermalPrinterService } from '../services/ThermalPrinterService';
 import { PosIndexedDbService } from '../services/PosIndexedDbService';
-import { fetchPOSApi } from '../lib/api';
+import { fetchPOSApi, fetchPOSMenu, invalidateMenuCache } from '../lib/api';
 
 interface POSBillingScreenProps {
   onLogout: () => void;
@@ -59,36 +59,36 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
     };
   }, []);
 
-  // Realtime product listener + initial server fetch
+  // Realtime product listener + instant SWR cache restore
   useEffect(() => {
     let isSubscribed = true;
 
+    // 1. Instant 0ms cache restore from IndexedDB to eliminate blank screens
+    PosIndexedDbService.getBranchCatalog(activeBranchId).then((cached) => {
+      if (isSubscribed && cached && cached.length > 0) {
+        setProducts(cached);
+        setIsProductsLoading(false);
+      }
+    }).catch(() => {});
+
+    // 2. Fast background revalidation using Redis Layerbase cached API (300s TTL)
     const fetchBranchMenu = async () => {
       try {
-        const res = await fetchPOSApi(`/api/pos/menu?branchId=${activeBranchId}&franchiseId=${activeFranchiseId}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (isSubscribed && data.items && Array.isArray(data.items) && data.items.length > 0) {
-            setProducts(data.items);
+        const data = await fetchPOSMenu(activeBranchId, activeFranchiseId, false, (fresh) => {
+          if (isSubscribed && fresh?.items && Array.isArray(fresh.items) && fresh.items.length > 0) {
+            setProducts(fresh.items);
             setIsProductsLoading(false);
-            PosIndexedDbService.saveBranchCatalog(activeBranchId, activeFranchiseId, data.items);
-            return;
+            PosIndexedDbService.saveBranchCatalog(activeBranchId, activeFranchiseId, fresh.items);
           }
+        });
+
+        if (isSubscribed && data?.items && Array.isArray(data.items) && data.items.length > 0) {
+          setProducts(data.items);
+          setIsProductsLoading(false);
+          PosIndexedDbService.saveBranchCatalog(activeBranchId, activeFranchiseId, data.items);
         }
       } catch (err) {
         console.warn('Could not fetch server branch menu, checking IndexedDB cache:', err);
-      }
-
-      // Check IndexedDB persistent cache if server unreachable or offline
-      try {
-        const cached = await PosIndexedDbService.getBranchCatalog(activeBranchId);
-        if (isSubscribed && cached && cached.length > 0) {
-          setProducts(cached);
-          setIsProductsLoading(false);
-          return;
-        }
-      } catch (idbErr) {
-        console.warn('IndexedDB cache retrieval notice:', idbErr);
       } finally {
         if (isSubscribed) setIsProductsLoading(false);
       }

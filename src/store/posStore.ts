@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
-import { BACKEND_URL } from '../lib/api';
+import { BACKEND_URL, invalidateMenuCache } from '../lib/api';
 import { POSCartItem, OrderSourceType, POSTerminalSession, POSCompletedBill, POSCustomerProfile, HeldBill, BranchOption } from '../types/pos';
 
 export type CustomerLookupStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NOT_FOUND' | 'ERROR';
@@ -338,6 +338,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
   activeBranchId: localStorage.getItem('pos_branch_id') || '',
   activeFranchiseId: '',
   switchBranchContext: (branchId, franchiseId, branchName) => {
+    invalidateMenuCache(branchId);
     localStorage.setItem('pos_branch_id', branchId);
     set((state) => ({
       activeBranchId: branchId,

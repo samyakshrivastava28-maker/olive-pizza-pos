@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePOSStore } from '../../store/posStore';
-import { fetchApi } from '../../lib/api';
+import { fetchApi, invalidateMenuCache, CLIENT_CACHE_TTL } from '../../lib/api';
 import { 
   Boxes, 
   X, 
@@ -30,9 +30,13 @@ export const ProductStockDrawer: React.FC = () => {
 
   const loadStock = async () => {
     if (!branchId) return;
-    setLoading(true);
+    if (items.length === 0) setLoading(true);
     try {
-      const res = await fetchApi('/api/menu/branch/' + branchId + '/management');
+      const res = await fetchApi(
+        '/api/menu/branch/' + branchId + '/management',
+        {},
+        { ttlMs: CLIENT_CACHE_TTL.BRANCH_MENU, swr: true }
+      );
       if (res && res.products) {
         setItems(res.products.map((p: any) => ({
           productId: p.id,
@@ -64,6 +68,7 @@ export const ProductStockDrawer: React.FC = () => {
         body: JSON.stringify({ productId, inStock: newStatus })
       });
       if (res && res.success) {
+        invalidateMenuCache(branchId);
         setItems(prev => prev.map(it => it.productId === productId ? { ...it, inStock: newStatus } : it));
         toast.success(newStatus ? 'Marked IN STOCK' : 'Marked OUT OF STOCK');
       } else {
