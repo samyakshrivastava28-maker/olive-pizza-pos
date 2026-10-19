@@ -137,11 +137,28 @@ export const getPOSCalculations = (state: { items: POSCartItem[]; discountAmount
   };
 };
 
+const getStoredSession = (): POSTerminalSession | null => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = localStorage.getItem('pos_session');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.branchId || parsed.franchiseId)) {
+          return parsed;
+        }
+      }
+    }
+  } catch {}
+  return null;
+};
+
+const initialSession = getStoredSession();
+
 export const usePOSStore = create<POSState>((set, get) => ({
   user: null,
-  session: null,
-  isAuthChecking: true,
-  isAuthorized: false,
+  session: initialSession,
+  isAuthChecking: false,
+  isAuthorized: !!initialSession,
   requiresPin: false,
   authStatus: null,
   restrictedReason: null,
@@ -201,6 +218,25 @@ export const usePOSStore = create<POSState>((set, get) => ({
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
+        // Check for offline/persisted active session
+        try {
+          const rawSaved = localStorage.getItem('pos_session');
+          if (rawSaved) {
+            const savedSession = JSON.parse(rawSaved);
+            if (savedSession && savedSession.branchId && savedSession.franchiseId) {
+              set({
+                session: savedSession,
+                isAuthChecking: false,
+                isAuthorized: true,
+                activeBranchId: savedSession.branchId,
+                activeFranchiseId: savedSession.franchiseId,
+                isOwner: savedSession.role === 'owner' || savedSession.isOwnerMode || false
+              });
+              return;
+            }
+          }
+        } catch {}
+
         set({
           user: null,
           session: null,
@@ -348,12 +384,12 @@ export const usePOSStore = create<POSState>((set, get) => ({
     });
   },
 
-  isOwner: false,
+  isOwner: initialSession?.role === 'owner' || initialSession?.isOwnerMode || false,
   setIsOwner: (isOwner) => set({ isOwner }),
   availableBranches: [],
   setAvailableBranches: (availableBranches) => set({ availableBranches }),
-  activeBranchId: localStorage.getItem('pos_branch_id') || '',
-  activeFranchiseId: '',
+  activeBranchId: initialSession?.branchId || (typeof window !== 'undefined' ? localStorage.getItem('pos_branch_id') || '' : ''),
+  activeFranchiseId: initialSession?.franchiseId || '',
   switchBranchContext: (branchId, franchiseId, branchName) => {
     invalidateMenuCache(branchId);
     localStorage.setItem('pos_branch_id', branchId);
