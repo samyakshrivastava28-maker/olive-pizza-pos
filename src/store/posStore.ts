@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
-import { BACKEND_URL, invalidateMenuCache } from '../lib/api';
-import { POSCartItem, OrderSourceType, POSTerminalSession, POSCompletedBill, POSCustomerProfile, HeldBill, BranchOption } from '../types/pos';
+import { BACKEND_URL, invalidateMenuCache, fetchPOSApi } from '../lib/api';
+import { POSCartItem, OrderSourceType, POSTerminalSession, POSCompletedBill, POSCustomerProfile, HeldBill, BranchOption, POSShift } from '../types/pos';
 
 export type CustomerLookupStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NOT_FOUND' | 'ERROR';
 
@@ -99,6 +99,16 @@ interface POSState {
   setIsPrintQueueOpen: (open: boolean) => void;
   pendingOnlineOrders: any[];
   setPendingOnlineOrders: (orders: any[]) => void;
+
+  // Shift & Cash Drawer Management
+  activeShift: POSShift | null;
+  setActiveShift: (shift: POSShift | null) => void;
+  isShiftModalOpen: boolean;
+  setIsShiftModalOpen: (open: boolean) => void;
+  fetchCurrentShift: () => Promise<POSShift | null>;
+  openShift: (openingCash: number, notes?: string) => Promise<boolean>;
+  recordCashAdjustment: (type: 'CASH_IN' | 'CASH_OUT', amount: number, reason: string) => Promise<boolean>;
+  closeShift: (actualCash: number, notes?: string) => Promise<boolean>;
 
   // Reset entire order state
   resetOrder: () => void;
@@ -534,6 +544,99 @@ export const usePOSStore = create<POSState>((set, get) => ({
   setIsPrintQueueOpen: (isPrintQueueOpen) => set({ isPrintQueueOpen }),
   pendingOnlineOrders: [],
   setPendingOnlineOrders: (pendingOnlineOrders) => set({ pendingOnlineOrders }),
+
+  // Shift & Cash Drawer State & Actions
+  activeShift: null,
+  setActiveShift: (activeShift) => set({ activeShift }),
+  isShiftModalOpen: false,
+  setIsShiftModalOpen: (isShiftModalOpen) => set({ isShiftModalOpen }),
+
+  fetchCurrentShift: async () => {
+    try {
+      const res = await fetchPOSApi('/api/pos/shifts/current');
+      if (res.ok) {
+        const data = await res.json();
+        const shift = data.shift || null;
+        set({ activeShift: shift });
+        return shift;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch active shift:', e);
+    }
+    return null;
+  },
+
+  openShift: async (openingCash: number, notes?: string) => {
+    try {
+      const res = await fetchPOSApi('/api/pos/shifts/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openingCash, notes }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.shift) {
+          set({ activeShift: data.shift });
+          return true;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to open shift:', e);
+    }
+    return false;
+  },
+
+  recordCashAdjustment: async (type: 'CASH_IN' | 'CASH_OUT', amount: number, reason: string) => {
+    const shift = get().activeShift;
+    try {
+      const res = await fetchPOSApi('/api/pos/shifts/cash-adjustment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shiftId: shift?.id,
+          type,
+          amount,
+          reason
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.shift) {
+          set({ activeShift: data.shift });
+        } else {
+          await get().fetchCurrentShift();
+        }
+        return true;
+      }
+    } catch (e) {
+      console.error('Failed to record cash adjustment:', e);
+    }
+    return false;
+  },
+
+  closeShift: async (actualCash: number, notes?: string) => {
+    const shift = get().activeShift;
+    if (!shift?.id) return false;
+    try {
+      const res = await fetchPOSApi('/api/pos/shifts/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shiftId: shift.id,
+          closingCash: actualCash,
+          actualCash,
+          notes
+        }),
+      });
+      if (res.ok) {
+        set({ activeShift: null });
+        return true;
+      }
+    } catch (e) {
+      console.error('Failed to close shift:', e);
+    }
+    return false;
+  },
 
   resetOrder: () =>
     set(() => ({

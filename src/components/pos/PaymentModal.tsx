@@ -68,38 +68,44 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
       transactionRef: cardRef || undefined,
     };
 
+    // 1. Generate durable UUID idempotency key BEFORE submission to prevent double billing
+    const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID 
+      ? crypto.randomUUID() 
+      : `idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
     const payload = {
+      idempotencyKey,
       userId: isWalkinCustomer ? 'pos_counter_walkin' : (customerId || 'pos_customer'),
       customerId: isWalkinCustomer ? null : (customerId || null),
       orderSource,
       customerName: customerName || 'Walk-in Customer',
       customerPhone: customerPhone || 'N/A',
       tableNumber: orderSource === 'POS_DINE_IN' ? tableNumber : undefined,
-        deliveryAddress: orderSource === 'POS_DINE_IN' ? ('Dine-In Table ' + tableNumber) : 'Takeaway Counter',
-        items: items.map((it) => ({
-          id: it.productId,
-          name: it.name,
-          price: it.price,
-          quantity: it.quantity,
-          size: it.size,
-          crust: it.crust,
-          addons: it.addons,
-          instructions: it.kitchenNotes,
-        })),
-        discountAmount: calcs.discountAmount,
-        couponCode: couponCode || undefined,
-        deliveryFee: calcs.deliveryFee,
-        paymentMethod: method,
-        paymentDetails,
-        session: {
-          cashierName: session.cashierName || 'Counter Cashier',
-          terminalId: session.terminalId || `pos_${session.franchiseId}`,
-          branchId: session.branchId,
-          branchName: session.branchName || 'Olive Pizza',
-          franchiseId: session.franchiseId,
-          organizationId: session.organizationId || 'org_olive_pizza',
-        },
-      };
+      deliveryAddress: orderSource === 'POS_DINE_IN' ? ('Dine-In Table ' + tableNumber) : 'Takeaway Counter',
+      items: items.map((it) => ({
+        id: it.productId,
+        name: it.name,
+        price: it.price,
+        quantity: it.quantity,
+        size: it.size,
+        crust: it.crust,
+        addons: it.addons,
+        instructions: it.kitchenNotes,
+      })),
+      discountAmount: calcs.discountAmount,
+      couponCode: couponCode || undefined,
+      deliveryFee: calcs.deliveryFee,
+      paymentMethod: method,
+      paymentDetails,
+      session: {
+        cashierName: session.cashierName || 'Counter Cashier',
+        terminalId: session.terminalId || `pos_${session.franchiseId}`,
+        branchId: session.branchId,
+        branchName: session.branchName || 'Olive Pizza',
+        franchiseId: session.franchiseId,
+        organizationId: session.organizationId || 'org_olive_pizza',
+      },
+    };
 
     try {
       let orderId = '';
@@ -107,6 +113,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
       let permanentBillNo: number | undefined = undefined;
       let dailyOrderNumber: number | undefined = undefined;
       let isOffline = false;
+      let provisionalReceiptNo: string | undefined = undefined;
 
       if (!navigator.onLine) {
         isOffline = true;
@@ -114,6 +121,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
         try {
           const res = await fetchPOSApi('/api/pos/orders', {
             method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Idempotency-Key': idempotencyKey,
+              'X-Idempotency-Key': idempotencyKey,
+            },
             body: JSON.stringify(payload),
           });
 
@@ -145,13 +157,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
       }
 
       if (isOffline) {
-        orderId = 'ord_off_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-        const nextSeq = Number(localStorage.getItem('pos_offline_bill_seq') || '1000') + 1;
-        localStorage.setItem('pos_offline_bill_seq', String(nextSeq));
-        billNumber = `#OFF-${nextSeq}`;
+        orderId = 'ord_off_' + Date.now() + '_' + idempotencyKey.slice(0, 8);
+        const nextSeq = Number(localStorage.getItem('pos_provisional_bill_seq') || localStorage.getItem('pos_offline_bill_seq') || '1000') + 1;
+        localStorage.setItem('pos_provisional_bill_seq', String(nextSeq));
+        provisionalReceiptNo = `PROV-${nextSeq}`;
+        billNumber = provisionalReceiptNo; // Explicitly marked as PROV-... provisional receipt
       }
 
       const completedBill: POSCompletedBill = {
+        idempotencyKey,
         billNumber,
         permanentBillNo,
         dailyOrderNumber,
@@ -179,6 +193,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
           organizationId: session.organizationId || 'org_olive_pizza',
         },
         createdAt: new Date().toISOString(),
+        isOfflineBill: isOffline,
+        isProvisional: isOffline,
+        provisionalReceiptNo: isOffline ? provisionalReceiptNo : undefined,
       };
 
       if (isOffline) {

@@ -11,6 +11,7 @@ import {
   Layers,
   Globe,
   ChevronDown,
+  Wallet,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLogo } from '../common/AppLogo';
@@ -36,7 +37,9 @@ export const POSHeader: React.FC<POSHeaderProps> = ({ onLogout }) => {
     setIsStockDrawerOpen, 
     setIsPrinterSettingsOpen, 
     setIsPrintQueueOpen,
-    pendingOnlineOrders 
+    pendingOnlineOrders,
+    activeShift,
+    setIsShiftModalOpen
   } = usePOSStore();
 
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
@@ -188,6 +191,26 @@ export const POSHeader: React.FC<POSHeaderProps> = ({ onLogout }) => {
         >
           <Boxes className="w-4 h-4 text-amber-400" />
           <span>Stock</span>
+        </button>
+
+        {/* Cashier Shift & Cash Drawer (F6) */}
+        <button
+          onClick={() => setIsShiftModalOpen(true)}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition active:scale-95 cursor-pointer ${
+            activeShift
+              ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 text-emerald-300'
+              : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-200'
+          }`}
+          title="Cashier Shift & Cash Drawer Reconciliation (F6)"
+        >
+          <Wallet className="w-4 h-4 text-emerald-400" />
+          <span>Shift</span>
+          {activeShift && (
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          )}
+          <kbd className="hidden md:inline-block px-1 py-0.2 bg-zinc-800 text-zinc-400 text-[9px] rounded border border-zinc-700 font-mono">
+            F6
+          </kbd>
         </button>
 
         {/* History (F10) */}

@@ -14,6 +14,7 @@ import { POSProduct, POSCompletedBill } from '../types/pos';
 import { ProductStockDrawer } from '../components/pos/ProductStockDrawer';
 import { PrinterSettingsModal } from '../components/pos/PrinterSettingsModal';
 import { PrintQueueDrawer } from '../components/pos/PrintQueueDrawer';
+import { ShiftManagementModal } from '../components/pos/ShiftManagementModal';
 import { UtensilsCrossed, Globe, ShoppingBag } from 'lucide-react';
 import { OnlineOrderPrintListener } from '../services/OnlineOrderPrintListener';
 import { OfflineBillingQueueService } from '../services/OfflineBillingQueueService';
@@ -38,7 +39,9 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
     setIsHeldBillsOpen,
     activeBranchId,
     activeFranchiseId,
-    holdCurrentBill
+    holdCurrentBill,
+    isShiftModalOpen,
+    setIsShiftModalOpen
   } = usePOSStore();
   
   const [products, setProducts] = useState<POSProduct[]>([]);
@@ -96,43 +99,97 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
 
     fetchBranchMenu();
 
-    // Firestore real-time listener for instant product & availability sync
-    let unsubscribe: (() => void) | undefined;
-    import('../lib/firebase').then(({ db }) => {
-      import('firebase/firestore').then(({ collection, onSnapshot }) => {
-        if (!isSubscribed) return;
-        unsubscribe = onSnapshot(collection(db, 'products'), (snap) => {
-          if (!snap.empty) {
-            const liveItems: POSProduct[] = snap.docs
-              .map((doc) => {
-                const d = doc.data();
-                const pPrice = Number(d.price ?? d.basePrice) || 0;
-                const channels = d.channelAvailability || { online: true, dineIn: true, takeaway: true, posDelivery: true };
-                // Check if enabled for POS (dineIn, takeaway, or posDelivery)
-                const isPosEnabled = channels.dineIn !== false || channels.takeaway !== false || channels.posDelivery !== false;
-                if (d.isActive === false || d.isAvailable === false || !isPosEnabled) return null;
-                return {
-                  id: doc.id,
-                  name: d.productName || d.name || 'Menu Item',
-                  category: d.category || 'Veg Pizzas',
-                  price: pPrice,
-                  basePrice: pPrice,
-                  isVegetarian: d.isVegetarian ?? true,
-                  isAvailable: d.isAvailable ?? true,
-                  imageUrl: d.imageUrl || d.image || '',
-                  description: d.description || '',
-                  variants: d.variants,
-                  crusts: d.crusts,
-                  addons: d.addons,
-                } as POSProduct;
-              })
-              .filter(Boolean) as POSProduct[];
+    // Firestore real-time listener: Merge master products with branch overrides
+    // Prevents master base prices from overwriting franchise custom prices!
+    let unsubscribeProducts: (() => void) | undefined;
+    let unsubscribeOverrides: (() => void) | undefined;
 
-            if (liveItems.length > 0 && isSubscribed) {
-              setProducts(liveItems);
-              setIsProductsLoading(false);
-              PosIndexedDbService.saveBranchCatalog(activeBranchId, activeFranchiseId, liveItems);
+    import('../lib/firebase').then(({ db }) => {
+      import('firebase/firestore').then(({ collection, query, where, onSnapshot }) => {
+        if (!isSubscribed) return;
+
+        let latestProductsSnap: any = null;
+        const overridesMap = new Map<string, any>();
+
+        const applyMergedCatalog = () => {
+          if (!latestProductsSnap || !isSubscribed) return;
+
+          const liveItems: POSProduct[] = latestProductsSnap.docs
+            .map((doc: any) => {
+              const d = doc.data();
+              const override = overridesMap.get(doc.id);
+
+              // Branch Enabled Check
+              const isEnabledForBranch = override 
+                ? (override.isEnabledForBranch ?? override.isAvailable ?? true) 
+                : (d.isActive !== false && d.isAvailable !== false);
+              if (!isEnabledForBranch) return null;
+
+              // POS Channel Check
+              const channels = override?.channelAvailability || d.channelAvailability || { online: true, dineIn: true, takeaway: true, posDelivery: true };
+              const isPosEnabled = channels.dineIn !== false || channels.takeaway !== false || channels.posDelivery !== false;
+              if (!isPosEnabled) return null;
+
+              const stockStatus = override?.stockStatus || (d.isAvailable !== false ? 'IN_STOCK' : 'OUT_OF_STOCK');
+              const isAvailable = stockStatus === 'IN_STOCK';
+
+              // Retain custom franchise selling price if set
+              const customPrice = override?.customPrice ?? override?.sellingPrice;
+              const effectivePrice = (customPrice !== undefined && customPrice !== null && !isNaN(Number(customPrice)))
+                ? Number(customPrice)
+                : Number(d.price ?? d.basePrice ?? 249);
+
+              return {
+                id: doc.id,
+                name: d.productName || d.name || 'Menu Item',
+                category: d.category || 'Veg Pizzas',
+                price: effectivePrice,
+                basePrice: effectivePrice,
+                customPrice: customPrice !== undefined && !isNaN(Number(customPrice)) ? Number(customPrice) : undefined,
+                version: override?.version || 1,
+                isVegetarian: d.isVegetarian ?? true,
+                stockStatus,
+                isAvailable,
+                imageUrl: d.imageUrl || d.image || '',
+                description: d.description || '',
+                variants: override?.allowedSizes || d.variants,
+                crusts: override?.allowedCrusts || d.crusts,
+                addons: override?.allowedAddons || d.addons,
+              } as POSProduct;
+            })
+            .filter(Boolean) as POSProduct[];
+
+          if (liveItems.length > 0 && isSubscribed) {
+            setProducts(liveItems);
+            setIsProductsLoading(false);
+            PosIndexedDbService.saveBranchCatalog(activeBranchId, activeFranchiseId, liveItems);
+          }
+        };
+
+        // 1. Listen for branch_menu_overrides for activeBranchId
+        const overridesQuery = query(
+          collection(db, 'branch_menu_overrides'),
+          where('branchId', '==', activeBranchId)
+        );
+
+        unsubscribeOverrides = onSnapshot(overridesQuery, (snap) => {
+          overridesMap.clear();
+          snap.docs.forEach((doc) => {
+            const data = doc.data();
+            if (data.productId) {
+              overridesMap.set(data.productId, data);
             }
+          });
+          applyMergedCatalog();
+        }, (err) => {
+          console.warn('[POS] Firestore branch overrides realtime warning:', err);
+        });
+
+        // 2. Listen for master products
+        unsubscribeProducts = onSnapshot(collection(db, 'products'), (snap) => {
+          if (!snap.empty) {
+            latestProductsSnap = snap;
+            applyMergedCatalog();
           }
         }, (err) => {
           console.warn('[POS] Firestore products realtime fallback:', err);
@@ -142,7 +199,8 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
 
     return () => {
       isSubscribed = false;
-      if (unsubscribe) unsubscribe();
+      if (unsubscribeProducts) unsubscribeProducts();
+      if (unsubscribeOverrides) unsubscribeOverrides();
     };
   }, [activeBranchId, activeFranchiseId]);
 
@@ -158,6 +216,11 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
       else if (e.key === 'F4') {
         e.preventDefault();
         resetOrder();
+      }
+      // F6: Shift & Cash Drawer Modal
+      else if (e.key === 'F6') {
+        e.preventDefault();
+        setIsShiftModalOpen(!isShiftModalOpen);
       }
       // F7: Toggle Physical Counter vs Online Orders Hub
       else if (e.key === 'F7') {
@@ -190,12 +253,13 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
         if (lastCompletedBill) setLastCompletedBill(null);
         if (isHistoryOpen) setIsHistoryOpen(false);
         if (isHeldBillsOpen) setIsHeldBillsOpen(false);
+        if (isShiftModalOpen) setIsShiftModalOpen(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [items.length, isPaymentOpen, selectedProduct, lastCompletedBill, isHistoryOpen, isHeldBillsOpen]);
+  }, [items.length, isPaymentOpen, selectedProduct, lastCompletedBill, isHistoryOpen, isHeldBillsOpen, isShiftModalOpen]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-zinc-950 text-white overflow-hidden select-none font-sans">
@@ -342,6 +406,9 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
 
       {/* 11. Live Online Order Print Queue Drawer */}
       <PrintQueueDrawer />
+
+      {/* 12. Cashier Shift & Cash Drawer Reconciliation Modal (F6) */}
+      <ShiftManagementModal />
     </div>
   );
 };

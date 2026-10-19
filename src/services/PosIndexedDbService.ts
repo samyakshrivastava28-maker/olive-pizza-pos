@@ -30,6 +30,7 @@ export interface OfflineBillRecord {
   syncedAt?: string;
   retryCount: number;
   lastError?: string;
+  permanentBillNo?: number;
 }
 
 export class PosIndexedDbService {
@@ -129,9 +130,12 @@ export class PosIndexedDbService {
       const record: OfflineBillRecord = {
         idempotencyKey,
         billNumber: bill.billNumber || '',
-        bill,
+        bill: {
+          ...bill,
+          idempotencyKey
+        },
         status: 'PENDING',
-        createdAt: new Date().toISOString(),
+        createdAt: bill.createdAt || new Date().toISOString(),
         retryCount: 0
       };
 
@@ -168,30 +172,100 @@ export class PosIndexedDbService {
   }
 
   /**
-   * Mark an offline bill as SYNCED
+   * Get all bill records stored in IndexedDB (both pending and synced)
    */
-  public static async markBillSynced(idempotencyKey: string): Promise<void> {
+  public static async getAllBills(): Promise<OfflineBillRecord[]> {
+    try {
+      const db = await this.getDB();
+      const tx = db.transaction(BILLS_STORE, 'readonly');
+      const store = tx.objectStore(BILLS_STORE);
+
+      return new Promise<OfflineBillRecord[]>((resolve) => {
+        const req = store.getAll();
+        req.onsuccess = () => {
+          resolve((req.result as OfflineBillRecord[]) || []);
+        };
+        req.onerror = () => resolve([]);
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get a single bill record by idempotency key
+   */
+  public static async getBillByIdempotencyKey(idempotencyKey: string): Promise<OfflineBillRecord | null> {
+    try {
+      const db = await this.getDB();
+      const tx = db.transaction(BILLS_STORE, 'readonly');
+      const store = tx.objectStore(BILLS_STORE);
+
+      return new Promise<OfflineBillRecord | null>((resolve) => {
+        const req = store.get(idempotencyKey);
+        req.onsuccess = () => resolve((req.result as OfflineBillRecord) || null);
+        req.onerror = () => resolve(null);
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Mark an offline bill as SYNCED with canonical permanent bill number
+   */
+  public static async markBillSynced(
+    idempotencyKey: string,
+    permanentBillNo?: number,
+    canonicalBillNumber?: string
+  ): Promise<void> {
     try {
       const db = await this.getDB();
       const tx = db.transaction(BILLS_STORE, 'readwrite');
       const store = tx.objectStore(BILLS_STORE);
 
-      const req = store.get(idempotencyKey);
-      req.onsuccess = () => {
-        const rec = req.result as OfflineBillRecord | undefined;
-        if (rec) {
-          rec.status = 'SYNCED';
-          rec.syncedAt = new Date().toISOString();
-          store.put(rec);
-        }
-      };
+      await new Promise<void>((resolve, reject) => {
+        const req = store.get(idempotencyKey);
+        req.onsuccess = () => {
+          const rec = req.result as OfflineBillRecord | undefined;
+          if (rec) {
+            rec.status = 'SYNCED';
+            rec.syncedAt = new Date().toISOString();
+            if (permanentBillNo != null) {
+              rec.permanentBillNo = permanentBillNo;
+              rec.bill.permanentBillNo = permanentBillNo;
+              rec.bill.isProvisional = false;
+            }
+            if (canonicalBillNumber) {
+              rec.bill.billNumber = canonicalBillNumber;
+            }
+            const putReq = store.put(rec);
+            putReq.onsuccess = () => resolve();
+            putReq.onerror = () => reject(putReq.error);
+          } else {
+            resolve();
+          }
+        };
+        req.onerror = () => reject(req.error);
+      });
     } catch (err) {
       console.warn('[PosIndexedDb] Failed to update bill sync status:', err);
     }
   }
 
   /**
-   * Remove synced bills from storage
+   * Updates permanent bill number on an existing record
+   */
+  public static async updateBillPermanentNumber(
+    idempotencyKey: string,
+    permanentBillNo: number,
+    canonicalBillNumber?: string
+  ): Promise<void> {
+    return this.markBillSynced(idempotencyKey, permanentBillNo, canonicalBillNumber);
+  }
+
+  /**
+   * Remove old synced bills from storage (prune beyond 7 days)
    */
   public static async clearSyncedBills(): Promise<void> {
     try {

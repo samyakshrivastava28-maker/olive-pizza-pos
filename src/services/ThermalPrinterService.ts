@@ -14,6 +14,7 @@ export interface ReceiptRenderData {
   branchAddress?: string;
   branchPhone?: string;
   gstNumber?: string;
+  fssaiNumber?: string;
   customerName: string;
   customerPhone?: string;
   deliveryAddress?: string;
@@ -35,8 +36,12 @@ export interface ReceiptRenderData {
   total: number;
   paymentMethod: string;
   paymentStatus: string;
+  cashReceived?: number;
+  cashChange?: number;
   createdAt: string;
   isReprint?: boolean;
+  isProvisional?: boolean;
+  provisionalReceiptNo?: string;
 }
 
 function escapeHtml(str: any): string {
@@ -109,6 +114,7 @@ export class ThermalPrinterService {
   }
 
   static convertCompletedBillToReceiptData(bill: POSCompletedBill, isReprint = false): ReceiptRenderData {
+    const isProvisional = bill.isProvisional || (!bill.permanentBillNo && (bill.billNumber.startsWith('PROV') || bill.billNumber.startsWith('#OFF')));
     return {
       orderId: bill.orderId,
       billNumber: bill.billNumber,
@@ -117,6 +123,10 @@ export class ThermalPrinterService {
       orderSource: bill.orderSource,
       orderType: bill.orderSource.replace('POS_', '').replace('_', ' '),
       branchName: bill.session.branchName || 'Olive Pizza',
+      branchAddress: 'Station Road, G.E. Road, Rajnandgaon, CG - 491441',
+      branchPhone: '+91 98765 43210',
+      gstNumber: '22AAFCO8899K1Z4',
+      fssaiNumber: '10422000001234',
       customerName: bill.customerName || 'Walk-in Customer',
       customerPhone: bill.customerPhone,
       deliveryAddress: bill.deliveryAddress,
@@ -138,8 +148,12 @@ export class ThermalPrinterService {
       total: bill.finalTotal,
       paymentMethod: bill.payment.method,
       paymentStatus: 'PAID',
+      cashReceived: bill.payment.cashReceived,
+      cashChange: bill.payment.cashChange,
       createdAt: bill.createdAt,
-      isReprint
+      isReprint,
+      isProvisional,
+      provisionalReceiptNo: bill.provisionalReceiptNo || (isProvisional ? bill.billNumber : undefined)
     };
   }
 
@@ -265,30 +279,34 @@ export class ThermalPrinterService {
   }
 
   static generateThermalHtml(data: ReceiptRenderData, paperSize: PaperSize = '80mm'): string {
-    const width = paperSize === '58mm' ? '48mm' : '72mm';
-    const fontSize = paperSize === '58mm' ? '10px' : '11px';
+    const is58mm = paperSize === '58mm';
+    const width = is58mm ? '48mm' : '72mm';
+    const fontSize = is58mm ? '9.5px' : '11px';
     const isOnline = data.orderSource === 'CUSTOMER_APP' || data.orderSource === 'ONLINE';
     const isPaid = data.paymentStatus?.toUpperCase() === 'PAID';
+    const isProvisional = data.isProvisional || (!data.permanentBillNo && (data.billNumber.startsWith('PROV') || data.billNumber.startsWith('#OFF')));
 
     const itemsHtml = data.items.map(item => {
-      const addonsStr = item.addons && item.addons.length > 0 ? ('<div style="font-size:9px;color:#555;padding-left:8px;">+ ' + item.addons.map(a => escapeHtml(a)).join(', ') + '</div>') : '';
+      const addonsStr = item.addons && item.addons.length > 0 ? ('<div style="font-size:8.5px;color:#555;padding-left:6px;">+ ' + item.addons.map(a => escapeHtml(a)).join(', ') + '</div>') : '';
       const variantItems = [item.size, item.crust].filter(Boolean).map(v => escapeHtml(v));
-      const variantStr = variantItems.length > 0 ? ('<div style="font-size:9px;color:#555;padding-left:8px;">(' + variantItems.join(' • ') + ')</div>') : '';
+      const variantStr = variantItems.length > 0 ? ('<div style="font-size:8.5px;color:#555;padding-left:6px;">(' + variantItems.join(' • ') + ')</div>') : '';
       return (
         '<div style="display:flex;justify-content:space-between;padding:2px 0;">' +
-          '<div style="flex:1;">' +
-            '<span>' + escapeHtml(item.quantity) + 'x ' + escapeHtml(item.name) + '</span>' +
+          '<div style="flex:1;padding-right:4px;">' +
+            '<span style="font-weight:600;">' + escapeHtml(item.quantity) + 'x ' + escapeHtml(item.name) + '</span>' +
             variantStr + addonsStr +
           '</div>' +
-          '<span style="font-weight:bold;margin-left:8px;">₹' + (item.price * item.quantity).toFixed(0) + '</span>' +
+          '<span style="font-weight:bold;white-space:nowrap;">₹' + (item.price * item.quantity).toFixed(0) + '</span>' +
         '</div>'
       );
     }).join('');
 
-    const safeBranch = escapeHtml(data.branchName || 'Kitchen');
-    const safeBranchPhone = data.branchPhone ? escapeHtml(data.branchPhone) : '';
-    const safeGst = data.gstNumber ? escapeHtml(data.gstNumber) : '';
-    const safePermBill = data.permanentBillNo != null ? escapeHtml(data.permanentBillNo) : '—';
+    const safeBranch = escapeHtml(data.branchName || 'Olive Pizza');
+    const safeBranchAddr = escapeHtml(data.branchAddress || 'Station Road, G.E. Road, Rajnandgaon, CG - 491441');
+    const safeBranchPhone = escapeHtml(data.branchPhone || '+91 98765 43210');
+    const safeGst = escapeHtml(data.gstNumber || '22AAFCO8899K1Z4');
+    const safeFssai = escapeHtml(data.fssaiNumber || '10422000001234');
+    const safePermBill = data.permanentBillNo != null ? escapeHtml(data.permanentBillNo) : null;
     const safeDailyOrd = data.dailyOrderNumber ? escapeHtml(data.dailyOrderNumber) : escapeHtml(data.billNumber);
     const safeOrderType = escapeHtml(data.orderType ? data.orderType.toUpperCase() : 'TAKEAWAY');
     const safeTable = data.tableNumber ? escapeHtml(data.tableNumber) : '';
@@ -298,6 +316,8 @@ export class ThermalPrinterService {
     const safeCashier = escapeHtml(data.cashierName || 'Staff');
     const safeTerminal = escapeHtml(data.terminalId || 'POS-1');
     const safePayMethod = data.paymentMethod ? escapeHtml(data.paymentMethod.toUpperCase()) : 'CASH';
+
+    const halfTax = (data.tax / 2);
 
     return [
       '<!DOCTYPE html>',
@@ -312,42 +332,62 @@ export class ThermalPrinterService {
           '.flex-between { display: flex; justify-content: space-between; }',
           '.bold { font-weight: bold; }',
           '.badge { display: inline-block; padding: 2px 4px; border: 1px solid #000; font-weight: bold; font-size: 10px; margin: 2px 0; }',
+          '.provisional-box { border: 1px solid #000; padding: 2px; margin: 2px 0; text-align: center; font-weight: bold; }',
         '</style>',
       '</head>',
       '<body>',
         '<div class="text-center border-b">',
-          (data.isReprint ? '<div class="badge">*** DUPLICATE REPRINT ***</div><br>' : ''),
+          (data.isReprint ? '<div class="badge" style="font-weight:900;border:1px dashed #000;font-size:10.5px;">*** DUPLICATE / REPRINT ***</div><br>' : ''),
           (isOnline ? '<div class="badge">ONLINE ORDER — KITCHEN BILL</div><br>' : ''),
-          '<strong style="font-size:14px;letter-spacing:1px;">OLIVE PIZZA</strong><br>',
+          '<strong style="font-size:' + (is58mm ? '13px' : '15px') + ';letter-spacing:1px;">OLIVE PIZZA</strong><br>',
           '<span>' + safeBranch + '</span><br>',
-          (safeBranchPhone ? '<span>Tel: ' + safeBranchPhone + '</span><br>' : ''),
-          (safeGst ? '<span style="font-size:9px;">GSTIN: ' + safeGst + '</span>' : ''),
+          '<span style="font-size:8.5px;">' + safeBranchAddr + '</span><br>',
+          '<span>Ph: ' + safeBranchPhone + '</span><br>',
+          '<span style="font-size:9px;">GSTIN: ' + safeGst + '</span><br>',
+          '<span style="font-size:9px;">FSSAI: ' + safeFssai + '</span>',
         '</div>',
-        '<div class="border-b" style="font-size:10px;">',
-          '<div class="flex-between bold" style="font-size:11px;"><span>PERM BILL: #' + safePermBill + '</span><span>DAILY ORD: #' + safeDailyOrd + '</span></div>',
+
+        '<div class="border-b" style="font-size:' + (is58mm ? '9px' : '10px') + ';">',
+          (isProvisional ? (
+            '<div class="provisional-box">' +
+              '<span>PROVISIONAL RECEIPT: ' + escapeHtml(data.billNumber) + '</span><br>' +
+              '<span style="font-size:8px;font-weight:normal;">(PENDING SERVER SYNC — NOT A TAX INVOICE)</span>' +
+            '</div>'
+          ) : (
+            '<div class="flex-between bold" style="font-size:10.5px;"><span>PERM BILL: #' + safePermBill + '</span><span>DAILY ORD: #' + safeDailyOrd + '</span></div>'
+          )),
           '<div class="flex-between"><span>CHANNEL:</span><span>' + safeOrderType + '</span></div>',
-          '<div class="flex-between"><span>' + new Date(data.createdAt).toLocaleDateString('en-IN') + '</span><span>' + new Date(data.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + '</span></div>',
+          '<div class="flex-between"><span>DATE: ' + new Date(data.createdAt).toLocaleDateString('en-IN') + '</span><span>TIME: ' + new Date(data.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + '</span></div>',
           (safeTable ? '<div class="bold">TABLE: ' + safeTable + '</div>' : ''),
           (safeCustName ? '<div>CUST: ' + safeCustName + (safeCustPhone ? ' (' + safeCustPhone + ')' : '') + '</div>' : ''),
-          (safeAddr ? '<div style="font-size:9px;">ADDR: ' + safeAddr + '</div>' : ''),
-          '<div style="font-size:9px;color:#333;">CASHIER: ' + safeCashier + ' • ' + safeTerminal + '</div>',
+          (safeAddr ? '<div style="font-size:8.5px;">ADDR: ' + safeAddr + '</div>' : ''),
+          '<div style="font-size:8.5px;color:#333;">CASHIER: ' + safeCashier + ' • ' + safeTerminal + '</div>',
         '</div>',
+
         '<div class="border-b">',
           itemsHtml,
         '</div>',
-        '<div class="border-b" style="font-size:10px;">',
+
+        '<div class="border-b" style="font-size:' + (is58mm ? '9px' : '10px') + ';">',
           '<div class="flex-between"><span>Subtotal:</span><span>₹' + data.subtotal.toFixed(2) + '</span></div>',
           (data.discount > 0 ? '<div class="flex-between"><span>Discount:</span><span>-₹' + data.discount.toFixed(2) + '</span></div>' : ''),
-          '<div class="flex-between"><span>GST (5% F&B):</span><span>₹' + data.tax.toFixed(2) + '</span></div>',
+          '<div class="flex-between"><span>CGST (2.5%):</span><span>₹' + halfTax.toFixed(2) + '</span></div>',
+          '<div class="flex-between"><span>SGST (2.5%):</span><span>₹' + halfTax.toFixed(2) + '</span></div>',
+          '<div class="flex-between bold"><span>Total GST (5%):</span><span>₹' + data.tax.toFixed(2) + '</span></div>',
           (data.deliveryFee && data.deliveryFee > 0 ? '<div class="flex-between"><span>Delivery Fee:</span><span>₹' + data.deliveryFee.toFixed(2) + '</span></div>' : ''),
-          '<div class="flex-between bold" style="font-size:13px;padding-top:4px;"><span>TOTAL:</span><span>₹' + data.total.toFixed(2) + '</span></div>',
+          '<div class="flex-between bold" style="font-size:' + (is58mm ? '12px' : '13px') + ';padding-top:4px;border-top:1px solid #000;margin-top:2px;"><span>TOTAL AMOUNT:</span><span>₹' + data.total.toFixed(2) + '</span></div>',
         '</div>',
-        '<div class="text-center border-b">',
-          '<div class="bold" style="font-size:11px;">STATUS: ' + (isPaid ? (isOnline ? 'PAID ONLINE (DO NOT CHARGE)' : 'PAID (' + safePayMethod + ')') : 'PAYMENT DUE: CASH') + '</div>',
+
+        '<div class="border-b" style="font-size:' + (is58mm ? '9px' : '10px') + ';">',
+          '<div class="flex-between bold"><span>PAYMENT METHOD:</span><span>' + safePayMethod + '</span></div>',
+          (data.cashReceived != null ? '<div class="flex-between"><span>Cash Received:</span><span>₹' + Number(data.cashReceived).toFixed(2) + '</span></div>' : ''),
+          (data.cashChange != null ? '<div class="flex-between bold"><span>Change Returned:</span><span>₹' + Number(data.cashChange).toFixed(2) + '</span></div>' : ''),
+          '<div class="text-center bold" style="margin-top:2px;">STATUS: ' + (isPaid ? (isOnline ? 'PAID ONLINE (DO NOT CHARGE)' : 'PAID') : 'PAYMENT DUE: CASH') + '</div>',
         '</div>',
-        '<div class="text-center" style="font-size:9px;padding-top:4px;">',
-          '<span>Thank you for dining with Olive Pizza!</span><br>',
-          '<span>www.olivepizza.in</span>',
+
+        '<div class="text-center" style="font-size:8.5px;padding-top:4px;">',
+          '<span>THANK YOU FOR VISITING OLIVE PIZZA!</span><br>',
+          '<span>Feedback: order@olivepizza.in • www.olivepizza.in</span>',
         '</div>',
       '</body>',
       '</html>'
