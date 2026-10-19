@@ -11,7 +11,7 @@ import POSPushNotificationManager from './services/POSPushNotificationManager';
 import { POSPinUnlockScreen } from './components/pos/POSPinUnlockScreen';
 
 export function App() {
-  const { session, user, isAuthChecking, isAuthorized, authStatus, restrictedReason, restrictedEmail, clearRestricted, initAuth, logout } = usePOSStore();
+  const { session, user, isAuthChecking, isAuthorized, requiresPin, authStatus, restrictedReason, restrictedEmail, clearRestricted, initAuth, logout } = usePOSStore();
   const [isPinUnlocked, setIsPinUnlocked] = React.useState<boolean>(() => {
     return sessionStorage.getItem('pos_pin_unlocked') === 'true';
   });
@@ -59,8 +59,8 @@ export function App() {
     await logout();
   };
 
-  // If user is authenticated and authorized, enforce 4-digit PIN unlock
-  if (isAuthorized && session && !isPinUnlocked) {
+  // If user is authenticated and authorized, enforce 4-digit PIN unlock if required by backend
+  if (isAuthorized && session && requiresPin && !isPinUnlocked) {
     return (
       <POSPinUnlockScreen
         userEmail={user?.email || session?.email}

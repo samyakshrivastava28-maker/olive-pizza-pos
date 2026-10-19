@@ -13,6 +13,7 @@ interface POSState {
   session: POSTerminalSession | null;
   isAuthChecking: boolean;
   isAuthorized: boolean;
+  requiresPin: boolean;
   authStatus?: 'APPROVED' | 'PENDING_OWNER_APPROVAL' | 'ACCOUNT_REJECTED' | 'ACCOUNT_DEACTIVATED' | null;
   restrictedReason: string | null;
   restrictedEmail: string | null;
@@ -141,6 +142,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
   session: null,
   isAuthChecking: true,
   isAuthorized: false,
+  requiresPin: false,
   authStatus: null,
   restrictedReason: null,
   restrictedEmail: null,
@@ -262,6 +264,10 @@ export const usePOSStore = create<POSState>((set, get) => ({
             terminalId: u.terminalId || `pos_${resolvedFranchiseId}`,
             branchId: resolvedBranchId,
             branchName: u.branchName || 'Olive Pizza',
+            branchAddress: u.branchAddress || 'Station Road, G.E. Road, Rajnandgaon, CG - 491441',
+            branchPhone: u.branchPhone || '+91 91799 44445',
+            gstNumber: u.gstNumber || u.gstin || '22AAFCO8899K1Z4',
+            fssaiNumber: u.fssaiNumber || '10422000001234',
             franchiseId: resolvedFranchiseId,
             organizationId: u.organizationId || 'org_olive_pizza',
             role: u.role as any,
@@ -273,6 +279,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
             session: newSession,
             isAuthChecking: false,
             isAuthorized: true,
+            requiresPin: Boolean(authData?.requiresPin),
             authStatus: 'APPROVED',
             restrictedReason: null,
             restrictedEmail: null,

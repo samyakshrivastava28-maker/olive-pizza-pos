@@ -199,7 +199,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
       };
 
       if (isOffline) {
-        OfflineBillingQueueService.enqueueOfflineBill(completedBill);
+        await OfflineBillingQueueService.enqueueOfflineBill(completedBill);
       }
 
       // Automatically send to configured thermal printer with zero cashier intervention

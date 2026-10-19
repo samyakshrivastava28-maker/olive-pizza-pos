@@ -31,15 +31,23 @@ const QUICK_INSTRUCTION_CHIPS = [
 export const CustomizationModal: React.FC<CustomizationModalProps> = ({ product, onClose, onAdd }) => {
   const isPizza = product.category?.toLowerCase().includes('pizza') ?? false;
 
-  const availableSizes = (product.sizes && product.sizes.length > 0)
+  const rawSizes = (product.sizes && product.sizes.length > 0)
     ? product.sizes
     : (product.variants && product.variants.length > 0)
       ? product.variants
       : [{ name: 'Standard', price: 0 }];
 
-  const availableCrusts = (product.crusts && product.crusts.length > 0)
+  const availableSizes: Array<{ name: string; price: number }> = rawSizes.map((s: any) => 
+    typeof s === 'string' ? { name: s, price: 0 } : { name: s?.name || 'Standard', price: Number(s?.price || 0) }
+  );
+
+  const rawCrusts = (product.crusts && product.crusts.length > 0)
     ? product.crusts
     : [{ name: 'Classic Hand-Tossed', price: 0 }];
+
+  const availableCrusts: Array<{ name: string; price: number }> = rawCrusts.map((c: any) => 
+    typeof c === 'string' ? { name: c, price: 0 } : { name: c?.name || 'Standard', price: Number(c?.price || 0) }
+  );
 
   const availableAddons: POSCartItemAddon[] = (product.addons && product.addons.length > 0)
     ? product.addons
@@ -79,13 +87,15 @@ export const CustomizationModal: React.FC<CustomizationModalProps> = ({ product,
   const itemFinalTotal = itemUnitPrice * quantity;
 
   const handleConfirm = () => {
+    const sPrice = Number(selectedSize?.price || 0);
+    const cPrice = Number(selectedCrust?.price || 0);
     onAdd({
       productId: product.id,
       name: product.name,
-      price: isPizza ? basePrice + selectedSize.price + selectedCrust.price : basePrice,
+      price: isPizza ? basePrice + sPrice + cPrice : basePrice,
       quantity,
-      size: isPizza ? selectedSize.name.split(' ')[0] : 'Standard',
-      crust: isPizza ? selectedCrust.name : 'Standard',
+      size: isPizza ? (selectedSize?.name || 'Standard').split(' ')[0] : 'Standard',
+      crust: isPizza ? (selectedCrust?.name || 'Standard') : 'Standard',
       addons: selectedAddons,
       kitchenNotes: kitchenNotes.trim() || undefined,
     });

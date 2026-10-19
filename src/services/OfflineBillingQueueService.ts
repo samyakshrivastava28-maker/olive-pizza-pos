@@ -39,7 +39,7 @@ export class OfflineBillingQueueService {
    * Enqueues an offline-settled bill to persistent storage (both IndexedDB and LocalStorage fallback).
    * Ensures the pre-generated durable UUID idempotency key is preserved.
    */
-  public static enqueueOfflineBill(bill: POSCompletedBill): void {
+  public static async enqueueOfflineBill(bill: POSCompletedBill): Promise<void> {
     try {
       const queue = this.getOfflineQueue();
       const idempotencyKey = bill.idempotencyKey || (bill as any).idempotencyKey || 
@@ -63,8 +63,8 @@ export class OfflineBillingQueueService {
 
       localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
 
-      // Persist to robust IndexedDB store
-      PosIndexedDbService.enqueueBill(enrichedBill, idempotencyKey);
+      // Persist to robust IndexedDB store (await durability)
+      await PosIndexedDbService.enqueueBill(enrichedBill, idempotencyKey);
 
       console.log(`📦 [OfflineQueue] Enqueued provisional offline bill #${enrichedBill.billNumber} (Key: ${idempotencyKey}). Queue count: ${queue.length}`);
     } catch (e) {

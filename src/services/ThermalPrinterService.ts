@@ -147,7 +147,7 @@ export class ThermalPrinterService {
       deliveryFee: bill.deliveryFee,
       total: bill.finalTotal,
       paymentMethod: bill.payment.method,
-      paymentStatus: 'PAID',
+      paymentStatus: ((bill.payment as any).status || (bill as any).paymentStatus || 'PAID').toUpperCase(),
       cashReceived: bill.payment.cashReceived,
       cashChange: bill.payment.cashChange,
       createdAt: bill.createdAt,

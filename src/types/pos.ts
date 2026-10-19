@@ -82,6 +82,10 @@ export interface POSTerminalSession {
   terminalId: string;
   branchId: string;
   branchName: string;
+  branchAddress?: string;
+  branchPhone?: string;
+  gstNumber?: string;
+  fssaiNumber?: string;
   franchiseId: string;
   organizationId: string;
   token?: string;

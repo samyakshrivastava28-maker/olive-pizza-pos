@@ -116,10 +116,10 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ bill, onClose, i
                 OLIVE PIZZA
               </h1>
               <p className="font-semibold text-zinc-700">{bill.session.branchName || 'Olive Pizza'}</p>
-              <p className="text-[10px] text-zinc-600">Station Road, G.E. Road, Rajnandgaon, CG - 491441</p>
-              <p className="text-[10px] text-zinc-600">Ph: +91 98765 43210</p>
-              <p className="text-[10px] text-zinc-700 font-semibold">GSTIN: 22AAFCO8899K1Z4</p>
-              <p className="text-[10px] text-zinc-700 font-semibold">FSSAI: 10422000001234</p>
+              <p className="text-[10px] text-zinc-600">{bill.session.branchAddress || 'Station Road, G.E. Road, Rajnandgaon, CG - 491441'}</p>
+              <p className="text-[10px] text-zinc-600">Ph: {bill.session.branchPhone || '+91 91799 44445'}</p>
+              <p className="text-[10px] text-zinc-700 font-semibold">GSTIN: {bill.session.gstNumber || '22AAFCO8899K1Z4'}</p>
+              <p className="text-[10px] text-zinc-700 font-semibold">FSSAI: {bill.session.fssaiNumber || '10422000001234'}</p>
             </div>
 
             {/* Bill Meta & Provisional Indicator */}
@@ -254,7 +254,7 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ bill, onClose, i
                 </>
               )}
               <div className="text-center font-bold pt-1">
-                STATUS: PAID
+                STATUS: {((bill.payment as any).status || (bill as any).paymentStatus || 'PAID').toUpperCase()}
               </div>
             </div>
 
