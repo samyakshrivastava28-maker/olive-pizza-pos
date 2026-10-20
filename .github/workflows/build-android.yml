@@ -2,7 +2,7 @@ name: Build Android APK — POS
 
 on:
   push:
-    branches: [main, fix/firebase-test-lab-artifacts]
+    branches: [main, 'fix/**', 'feat/**']
     tags:
       - 'v*'
   workflow_dispatch:
