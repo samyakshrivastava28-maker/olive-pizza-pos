@@ -212,7 +212,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
       onClose();
     } catch (err: any) {
       console.error('POS order settlement error:', err);
-      setError(err.response?.data?.error || err.message || 'Failed to complete transaction.');
+      const errMsg = err.response?.data?.error || err.message || 'Failed to complete transaction.';
+      setError(errMsg);
+      toast.error(`Transaction halted: ${errMsg}. Cart preserved.`);
     } finally {
       setLoading(false);
     }

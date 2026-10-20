@@ -254,7 +254,7 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ bill, onClose, i
                 </>
               )}
               <div className="text-center font-bold pt-1">
-                STATUS: {((bill.payment as any).status || (bill as any).paymentStatus || 'PAID').toUpperCase()}
+                STATUS: {((bill.payment as any).status || (bill as any).paymentStatus || (bill.isOfflineBill ? (bill.payment?.method === 'CASH' ? 'PAID' : 'PENDING_RECONCILIATION') : 'PENDING')).toUpperCase()}
               </div>
             </div>
 

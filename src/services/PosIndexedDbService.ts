@@ -120,10 +120,11 @@ export class PosIndexedDbService {
 
   /**
    * Enqueue an offline bill with idempotency key
+   * Resolves only after the IndexedDB transaction itself completes successfully on disk.
    */
   public static async enqueueBill(bill: POSCompletedBill, idempotencyKey: string): Promise<void> {
-    try {
-      const db = await this.getDB();
+    const db = await this.getDB();
+    return new Promise<void>((resolve, reject) => {
       const tx = db.transaction(BILLS_STORE, 'readwrite');
       const store = tx.objectStore(BILLS_STORE);
 
@@ -139,14 +140,14 @@ export class PosIndexedDbService {
         retryCount: 0
       };
 
-      await new Promise<void>((resolve, reject) => {
-        const req = store.put(record);
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-      });
-    } catch (err) {
-      console.error('[PosIndexedDb] Failed to enqueue offline bill:', err);
-    }
+      const req = store.put(record);
+      req.onerror = () => reject(req.error || new Error('Failed to put record in IndexedDB store'));
+
+      // Resolve only after transaction commits to disk
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed to commit'));
+      tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+    });
   }
 
   /**

@@ -63,12 +63,14 @@ export class OfflineBillingQueueService {
 
       localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
 
-      // Persist to robust IndexedDB store (await durability)
+      // Persist to robust IndexedDB store (await durability on disk!)
+      // Surface storage errors to checkout rather than swallowing them
       await PosIndexedDbService.enqueueBill(enrichedBill, idempotencyKey);
 
       console.log(`📦 [OfflineQueue] Enqueued provisional offline bill #${enrichedBill.billNumber} (Key: ${idempotencyKey}). Queue count: ${queue.length}`);
     } catch (e) {
       console.error('Failed to write offline bill to storage:', e);
+      throw e;
     }
   }
 
