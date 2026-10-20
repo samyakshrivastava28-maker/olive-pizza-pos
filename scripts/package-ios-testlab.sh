@@ -34,21 +34,30 @@ if [ "$ACTION" = "build" ] || [ "$ACTION" = "build-and-package" ]; then
   mkdir -p "$DERIVED_DATA_ABS"
   
   if [ -d "ios/App/App.xcworkspace" ]; then
-    TARGET_FLAG="-workspace ios/App/App.xcworkspace"
+    pushd ios/App > /dev/null
+    xcodebuild build-for-testing \
+      -workspace App.xcworkspace \
+      -scheme App \
+      -configuration Debug \
+      -destination "generic/platform=iOS" \
+      -derivedDataPath "$DERIVED_DATA_ABS" \
+      CODE_SIGN_IDENTITY="" \
+      CODE_SIGNING_REQUIRED=NO \
+      CODE_SIGNING_ALLOWED=NO \
+      PROVISIONING_PROFILE_SPECIFIER=""
+    popd > /dev/null
   else
-    TARGET_FLAG="-project ios/App/App.xcodeproj"
+    xcodebuild build-for-testing \
+      -project ios/App/App.xcodeproj \
+      -scheme App \
+      -configuration Debug \
+      -destination "generic/platform=iOS" \
+      -derivedDataPath "$DERIVED_DATA_ABS" \
+      CODE_SIGN_IDENTITY="" \
+      CODE_SIGNING_REQUIRED=NO \
+      CODE_SIGNING_ALLOWED=NO \
+      PROVISIONING_PROFILE_SPECIFIER=""
   fi
-
-  xcodebuild build-for-testing \
-    $TARGET_FLAG \
-    -scheme App \
-    -configuration Debug \
-    -destination "generic/platform=iOS" \
-    -derivedDataPath "$DERIVED_DATA_ABS" \
-    CODE_SIGN_IDENTITY="" \
-    CODE_SIGNING_REQUIRED=NO \
-    CODE_SIGNING_ALLOWED=NO \
-    PROVISIONING_PROFILE_SPECIFIER=""
   
   echo "✅ xcodebuild build-for-testing completed successfully."
 fi

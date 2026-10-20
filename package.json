@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port 5178",
     "build": "tsc && vite build",
+    "test": "vite-node src/tests/offline_queue_resilience.test.ts",
     "preview": "vite preview --port 5178",
     "desktop": "electron .",
     "electron:dev": "vite --port 5178",
@@ -43,7 +44,9 @@
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
     "tailwindcss": "^4.0.6",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.3",
-    "vite": "^6.1.0"
+    "vite": "^6.1.0",
+    "vite-node": "^6.0.0"
   }
 }

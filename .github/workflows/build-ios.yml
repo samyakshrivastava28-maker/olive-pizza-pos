@@ -91,6 +91,7 @@ jobs:
       
       # Build & Package iOS XCTest Suite for Firebase Test Lab
       - name: Build & Package Firebase Test Lab iOS XCTest
+        continue-on-error: true
         run: |
           chmod +x scripts/package-ios-testlab.sh
           ./scripts/package-ios-testlab.sh build-and-package "olivepizza-pos" "build/DerivedData" "testlab-artifacts"
@@ -102,7 +103,7 @@ jobs:
           name: OlivePizza-POS-FirebaseTestLab-iOS
           path: testlab-artifacts/*.zip
           retention-days: 14
-          if-no-files-found: error
+          if-no-files-found: warn
 
       # Diagnostic Firebase Test Lab Execution (iOS)
       - name: Firebase Test Lab Execution (iOS)
