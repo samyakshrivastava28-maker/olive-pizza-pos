@@ -36,41 +36,46 @@ export class OfflineBillingQueueService {
   }
 
   /**
-   * Enqueues an offline-settled bill to persistent storage (both IndexedDB and LocalStorage fallback).
-   * Ensures the pre-generated durable UUID idempotency key is preserved.
+   * Enqueues an offline-settled bill to persistent storage failure-safely.
+   * Ensures atomic local queue eligibility:
+   * 1. IndexedDB durable disk record MUST commit first.
+   * 2. No bill enters the active sync queue unless the durable record exists.
+   * 3. Any storage failure aborts checkout with cart preserved.
    */
   public static async enqueueOfflineBill(bill: POSCompletedBill): Promise<void> {
+    const idempotencyKey = bill.idempotencyKey || (bill as any).idempotencyKey || 
+      (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `off_${bill.session?.terminalId || 'TERM'}_${bill.billNumber}_${Date.now()}`);
+    
+    const enrichedBill: POSCompletedBill = {
+      ...bill,
+      idempotencyKey,
+      isOfflineBill: true,
+      isProvisional: true,
+      provisionalReceiptNo: bill.provisionalReceiptNo || bill.billNumber,
+    };
+
+    // 1. Persist to robust IndexedDB store FIRST (await durability on disk!)
+    // If IndexedDB fails (quota exceeded, abort, disabled), do NOT update localStorage!
+    try {
+      await PosIndexedDbService.enqueueBill(enrichedBill, idempotencyKey);
+    } catch (dbErr) {
+      console.error('Failed to commit bill to durable IndexedDB storage:', dbErr);
+      throw dbErr;
+    }
+
+    // 2. ONLY once durable record is confirmed committed to disk, update localStorage queue
     try {
       const queue = this.getOfflineQueue();
-      const idempotencyKey = bill.idempotencyKey || (bill as any).idempotencyKey || 
-        (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `off_${bill.session?.terminalId || 'TERM'}_${bill.billNumber}_${Date.now()}`);
-      
-      const enrichedBill: POSCompletedBill = {
-        ...bill,
-        idempotencyKey,
-        isOfflineBill: true,
-        isProvisional: true,
-        provisionalReceiptNo: bill.provisionalReceiptNo || bill.billNumber,
-      };
-
-      // Check if already in queue to prevent duplicate insertion
       const existingIdx = queue.findIndex((b: any) => b.idempotencyKey === idempotencyKey);
       if (existingIdx >= 0) {
         queue[existingIdx] = enrichedBill;
       } else {
         queue.push(enrichedBill);
       }
-
       localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
-
-      // Persist to robust IndexedDB store (await durability on disk!)
-      // Surface storage errors to checkout rather than swallowing them
-      await PosIndexedDbService.enqueueBill(enrichedBill, idempotencyKey);
-
-      console.log(`📦 [OfflineQueue] Enqueued provisional offline bill #${enrichedBill.billNumber} (Key: ${idempotencyKey}). Queue count: ${queue.length}`);
-    } catch (e) {
-      console.error('Failed to write offline bill to storage:', e);
-      throw e;
+      console.log(`📦 [OfflineQueue] Atomically enqueued provisional offline bill #${enrichedBill.billNumber} (Key: ${idempotencyKey}). Queue count: ${queue.length}`);
+    } catch (storageErr) {
+      console.warn('[OfflineQueue] LocalStorage fallback write notice:', storageErr);
     }
   }
 
@@ -83,19 +88,23 @@ export class OfflineBillingQueueService {
       return { synced: 0, remaining: this.getOfflineQueue().length };
     }
 
-    // 1. Ensure IndexedDB pending records are fully unified with localStorage
-    let queue = this.getOfflineQueue();
+    // 1. Durable IndexedDB is the source of truth for queue eligibility.
+    // No bill may enter the active background sync queue unless the required durable local record exists!
     const pendingIdb = await PosIndexedDbService.getPendingBills();
-    if (pendingIdb.length > 0) {
-      const queueKeys = new Set(queue.map((b: any) => b.idempotencyKey));
-      for (const p of pendingIdb) {
-        if (!queueKeys.has(p.idempotencyKey)) {
-          queue.push({ ...p.bill, idempotencyKey: p.idempotencyKey });
-          queueKeys.add(p.idempotencyKey);
-        }
+    const pendingIdbMap = new Map(pendingIdb.map(p => [p.idempotencyKey, p.bill]));
+
+    // Filter localStorage queue to only include bills that have a confirmed durable IndexedDB record
+    let queue = this.getOfflineQueue().filter((b: any) => pendingIdbMap.has(b.idempotencyKey));
+
+    // Ensure all pending IndexedDB records are present in the queue
+    const queueKeys = new Set(queue.map((b: any) => b.idempotencyKey));
+    for (const [key, bill] of pendingIdbMap.entries()) {
+      if (!queueKeys.has(key)) {
+        queue.push({ ...bill, idempotencyKey: key });
+        queueKeys.add(key);
       }
-      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
     }
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
 
     if (queue.length === 0) {
       return { synced: 0, remaining: 0 };

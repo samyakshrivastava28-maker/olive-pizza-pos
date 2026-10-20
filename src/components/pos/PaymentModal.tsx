@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { usePOSStore, getPOSCalculations } from '../../store/posStore';
 import { POSCompletedBill, POSPaymentDetails } from '../../types/pos';
 import { fetchPOSApi } from '../../lib/api';
 import { OfflineBillingQueueService } from '../../services/OfflineBillingQueueService';
+import { PosIndexedDbService } from '../../services/PosIndexedDbService';
 import { ThermalPrinterService } from '../../services/ThermalPrinterService';
 import { 
   X, Banknote, QrCode, CreditCard, Layers, CheckCircle2, 
@@ -43,6 +44,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
   const [cardRef, setCardRef] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeIdempotencyKeyRef = useRef<string | null>(null);
 
   const cashChange = Math.max(0, cashReceived - calcs.finalTotal);
   const splitRemaining = Math.max(0, calcs.finalTotal - splitCash);
@@ -57,6 +59,32 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
       return;
     }
 
+    // 1. Maintain stable idempotency key across retries so retry cannot create a second sale under a new key
+    if (!activeIdempotencyKeyRef.current) {
+      activeIdempotencyKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID 
+        ? crypto.randomUUID() 
+        : `idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    }
+    const idempotencyKey = activeIdempotencyKeyRef.current;
+
+    // 2. Reconcile partially written records before checkout retry
+    try {
+      const existingDurable = await PosIndexedDbService.getBillByIdempotencyKey(idempotencyKey);
+      if (existingDurable && existingDurable.bill) {
+        console.log('🔄 [PaymentModal] Found existing durable bill for idempotency key on retry:', idempotencyKey);
+        if (existingDurable.status === 'SYNCED' || existingDurable.permanentBillNo) {
+          toast.success(`Bill already finalized as #${existingDurable.permanentBillNo || existingDurable.billNumber}`);
+          onCompleteBill(existingDurable.bill);
+          resetOrder();
+          activeIdempotencyKeyRef.current = null;
+          onClose();
+          return;
+        }
+      }
+    } catch (chkErr) {
+      console.warn('[PaymentModal] Notice checking existing durable record:', chkErr);
+    }
+
     const paymentDetails: POSPaymentDetails = {
       method,
       cashReceived: method === 'CASH' ? cashReceived : undefined,
@@ -67,11 +95,6 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
       splitUPI: method === 'SPLIT' ? splitRemaining : undefined,
       transactionRef: cardRef || undefined,
     };
-
-    // 1. Generate durable UUID idempotency key BEFORE submission to prevent double billing
-    const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID() 
-      : `idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
     const payload = {
       idempotencyKey,
@@ -209,6 +232,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
 
       onCompleteBill(completedBill);
       resetOrder();
+      activeIdempotencyKeyRef.current = null;
       onClose();
     } catch (err: any) {
       console.error('POS order settlement error:', err);
