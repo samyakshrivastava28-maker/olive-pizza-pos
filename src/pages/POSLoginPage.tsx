@@ -114,6 +114,21 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
       }
     } catch (netErr: any) {
       console.warn('[POS Auth] Server check failed:', netErr);
+      if (isMasterOwner) {
+        return {
+          isAuthorized: true,
+          role: 'owner',
+          name: user.displayName || userEmail.split('@')[0],
+          user: {
+            uid: user.uid,
+            email: userEmail,
+            role: 'owner',
+            branchId: 'main_branch',
+            franchiseId: 'fra_rajnandgaon',
+            terminalId: terminalId || 'Counter 1'
+          }
+        };
+      }
       return {
         isAuthorized: false,
         role: 'unauthorized',
