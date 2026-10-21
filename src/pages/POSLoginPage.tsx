@@ -294,11 +294,12 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
         const credential = GoogleAuthProvider.credential(idToken);
         const userCred = await signInWithCredential(auth, credential);
         user = userCred.user;
-      } else if (isElectron && (window as any).posHardware?.startBrowserAuth) {
+      } else if (isElectron && ((window as any).posHardware?.startBrowserAuth || (window as any).electronAuth?.startBrowserAuth)) {
         // Desktop Electron: Authenticate via System Browser to bypass Chromium/file:// restrictions
         toast.loading('Opening system browser to authenticate...', { id: 'browser-auth' });
         const authUrl = `${BACKEND_URL}/api/auth/desktop-login?app=POS`;
-        const authResult = await (window as any).posHardware.startBrowserAuth(authUrl);
+        const authFn = (window as any).posHardware?.startBrowserAuth || (window as any).electronAuth?.startBrowserAuth;
+        const authResult = await authFn(authUrl);
 
         if (!authResult || !authResult.success) {
           toast.dismiss('browser-auth');
