@@ -273,10 +273,13 @@ export const usePOSStore = create<POSState>((set, get) => ({
         if (resp.ok && authData?.authorized) {
           const u = authData.user;
           const isMasterOwner = emailLower === 'webhub2811@gmail.com' || emailLower === 'olivepizzarjn@gmail.com' || emailLower === 'olivepizzamaker@gmail.com';
-          const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || isMasterOwner;
+          const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || isMasterOwner || u.isOwnerMode;
 
-          const resolvedBranchId = u.branchId || (isPrivileged ? 'main_branch' : '');
-          const resolvedFranchiseId = u.franchiseId || (isPrivileged ? 'fra_rajnandgaon' : '');
+          let resolvedBranchId = u.branchId || (isPrivileged ? 'main_branch' : '');
+          let resolvedFranchiseId = u.franchiseId || (isPrivileged ? 'fra_rajnandgaon' : '');
+
+          if (resolvedBranchId === 'fra_primary' || !resolvedBranchId) resolvedBranchId = 'main_branch';
+          if (resolvedFranchiseId === 'fra_primary' || !resolvedFranchiseId) resolvedFranchiseId = 'fra_rajnandgaon';
 
           if (!resolvedBranchId || !resolvedFranchiseId) {
             await signOut(auth).catch(() => {});

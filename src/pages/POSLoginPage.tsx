@@ -83,9 +83,12 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
 
       if (resp.ok && authData?.authorized) {
         const u = authData.user;
-        const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || isMasterOwner;
-        const resolvedBranchId = u.branchId || (isPrivileged ? 'main_branch' : '');
-        const resolvedFranchiseId = u.franchiseId || (isPrivileged ? 'fra_rajnandgaon' : '');
+        const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || isMasterOwner || u.isOwnerMode;
+        let resolvedBranchId = u.branchId || (isPrivileged ? 'main_branch' : '');
+        let resolvedFranchiseId = u.franchiseId || (isPrivileged ? 'fra_rajnandgaon' : '');
+
+        if (resolvedBranchId === 'fra_primary' || !resolvedBranchId) resolvedBranchId = 'main_branch';
+        if (resolvedFranchiseId === 'fra_primary' || !resolvedFranchiseId) resolvedFranchiseId = 'fra_rajnandgaon';
 
         if (!resolvedBranchId || !resolvedFranchiseId) {
           return {
