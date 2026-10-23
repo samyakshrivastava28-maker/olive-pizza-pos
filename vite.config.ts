@@ -10,6 +10,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  resolve: {
+    preserveSymlinks: true,
+  },
   server: {
     port: 5178,
     host: true,
