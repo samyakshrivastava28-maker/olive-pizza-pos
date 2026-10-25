@@ -1,11 +1,33 @@
 import { Capacitor } from '@capacitor/core';
 import { auth } from './firebase';
 
-const isLocalHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 export const PRODUCTION_BACKEND_URL = 'https://olivepizza-owner.onrender.com';
-export const BACKEND_URL = isLocalHost
-  ? 'http://localhost:5000'
-  : (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_BACKEND_URL || PRODUCTION_BACKEND_URL);
+
+export function getApiBaseUrl(): string {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '');
+  }
+  if (import.meta.env.VITE_BACKEND_URL) {
+    return import.meta.env.VITE_BACKEND_URL.replace(/\/+$/, '');
+  }
+  if (
+    Capacitor.isNativePlatform() ||
+    (typeof window !== 'undefined' && (
+      window.location.protocol === 'capacitor:' ||
+      window.location.protocol === 'ionic:' ||
+      window.location.protocol === 'file:' ||
+      navigator.userAgent.includes('Electron')
+    ))
+  ) {
+    return PRODUCTION_BACKEND_URL;
+  }
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    return 'http://localhost:5000';
+  }
+  return PRODUCTION_BACKEND_URL;
+}
+
+export const BACKEND_URL = getApiBaseUrl();
 
 export function getPOSWebSocketUrl(): string {
   if (BACKEND_URL.startsWith('https://')) {

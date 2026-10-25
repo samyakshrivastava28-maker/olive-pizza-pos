@@ -326,7 +326,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
             activeBranchId: newSession.branchId,
             activeFranchiseId: newSession.franchiseId
           });
-        } else {
+        } else if (resp.status === 403 || authData?.code === 'ACCOUNT_REJECTED' || authData?.code === 'ACCOUNT_REVOKED' || authData?.code === 'PENDING_OWNER_APPROVAL' || authData?.code === 'NOT_REGISTERED' || authData?.code === 'TERMINAL_REVOKED') {
           // Explicitly unauthorized or pending account
           const denialReason = authData?.reason || 'This account is not authorized to use this Olive Pizza application.';
           const code = authData?.code || 'UNAUTHORIZED';
@@ -347,6 +347,18 @@ export const usePOSStore = create<POSState>((set, get) => ({
             isAuthorized: false,
             authStatus: isPending ? 'PENDING_OWNER_APPROVAL' : code === 'ACCOUNT_REJECTED' ? 'ACCOUNT_REJECTED' : code === 'ACCOUNT_REVOKED' ? 'ACCOUNT_DEACTIVATED' : null,
             restrictedReason: denialReason,
+            restrictedEmail: emailLower
+          });
+        } else {
+          // Server 5xx cold start, network glitch or timeout — DO NOT destroy session
+          console.warn('[POSStore] Transient connectivity issue during POS auth check:', resp.status, authData);
+          set({
+            user: firebaseUser,
+            session: null,
+            isAuthChecking: false,
+            isAuthorized: false,
+            authStatus: null,
+            restrictedReason: 'Unable to connect to POS server (waking up). Please retry in a few moments.',
             restrictedEmail: emailLower
           });
         }
