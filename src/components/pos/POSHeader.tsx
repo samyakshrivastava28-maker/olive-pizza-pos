@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { usePOSStore } from '../../store/posStore';
 import { 
   Building2, 
@@ -68,7 +68,7 @@ export const POSHeader: React.FC<POSHeaderProps> = ({ onLogout }) => {
     name: session?.branchName || 'Olive Pizza — Rajnandgaon (HQ)',
     code: 'OP-RJN-01',
     branchId: activeBranchId,
-    franchiseId: 'fra_rajnandgaon'
+    franchiseId: session?.franchiseId || ''
   };
 
   return (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { usePOSStore } from '../store/posStore';
 import { auth } from '../lib/firebase';
 import { 
@@ -51,7 +51,6 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
   // Authorize User Role & Permissions via Server Gateway
   const verifyUserAuthorization = async (user: FirebaseUser): Promise<{ isAuthorized: boolean; user?: any; role: string; name: string; denialReason?: string }> => {
     const userEmail = (user.email || '').toLowerCase().trim();
-    const isMasterOwner = userEmail === 'webhub2811@gmail.com' || userEmail === 'olivepizzarjn@gmail.com' || userEmail === 'olivepizzamaker@gmail.com';
 
     try {
       const idToken = await user.getIdToken();
@@ -83,12 +82,11 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
 
       if (resp.ok && authData?.authorized) {
         const u = authData.user;
-        const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || isMasterOwner || u.isOwnerMode;
-        let resolvedBranchId = u.branchId || (isPrivileged ? 'main_branch' : '');
-        let resolvedFranchiseId = u.franchiseId || (isPrivileged ? 'fra_rajnandgaon' : '');
-
-        if (resolvedBranchId === 'fra_primary' || !resolvedBranchId) resolvedBranchId = 'main_branch';
-        if (resolvedFranchiseId === 'fra_primary' || !resolvedFranchiseId) resolvedFranchiseId = 'fra_rajnandgaon';
+        const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || u.isOwnerMode;
+        let resolvedBranchId = u.branchId || '';
+        let resolvedFranchiseId = u.franchiseId || '';
+        if (resolvedBranchId === 'fra_primary') resolvedBranchId = '';
+        if (resolvedFranchiseId === 'fra_primary') resolvedFranchiseId = '';
 
         if (!resolvedBranchId || !resolvedFranchiseId) {
           return {
@@ -117,21 +115,6 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
       }
     } catch (netErr: any) {
       console.warn('[POS Auth] Server check failed:', netErr);
-      if (isMasterOwner) {
-        return {
-          isAuthorized: true,
-          role: 'owner',
-          name: user.displayName || userEmail.split('@')[0],
-          user: {
-            uid: user.uid,
-            email: userEmail,
-            role: 'owner',
-            branchId: 'main_branch',
-            franchiseId: 'fra_rajnandgaon',
-            terminalId: terminalId || 'Counter 1'
-          }
-        };
-      }
       return {
         isAuthorized: false,
         role: 'unauthorized',

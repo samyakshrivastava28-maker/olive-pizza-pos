@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+﻿import { create } from 'zustand';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
@@ -272,14 +272,13 @@ export const usePOSStore = create<POSState>((set, get) => ({
 
         if (resp.ok && authData?.authorized) {
           const u = authData.user;
-          const isMasterOwner = emailLower === 'webhub2811@gmail.com' || emailLower === 'olivepizzarjn@gmail.com' || emailLower === 'olivepizzamaker@gmail.com';
-          const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || isMasterOwner || u.isOwnerMode;
+          const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || u.isOwnerMode;
 
-          let resolvedBranchId = u.branchId || (isPrivileged ? 'main_branch' : '');
-          let resolvedFranchiseId = u.franchiseId || (isPrivileged ? 'fra_rajnandgaon' : '');
-
-          if (resolvedBranchId === 'fra_primary' || !resolvedBranchId) resolvedBranchId = 'main_branch';
-          if (resolvedFranchiseId === 'fra_primary' || !resolvedFranchiseId) resolvedFranchiseId = 'fra_rajnandgaon';
+          let resolvedBranchId = u.branchId || '';
+          let resolvedFranchiseId = u.franchiseId || '';
+          // Strip placeholder IDs — real scoping must come from server response
+          if (resolvedBranchId === 'fra_primary') resolvedBranchId = '';
+          if (resolvedFranchiseId === 'fra_primary') resolvedFranchiseId = '';
 
           if (!resolvedBranchId || !resolvedFranchiseId) {
             await signOut(auth).catch(() => {});
