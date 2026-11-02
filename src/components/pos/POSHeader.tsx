@@ -12,6 +12,7 @@ import {
   Globe,
   ChevronDown,
   Wallet,
+  Database,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLogo } from '../common/AppLogo';
@@ -39,7 +40,8 @@ export const POSHeader: React.FC<POSHeaderProps> = ({ onLogout }) => {
     setIsPrintQueueOpen,
     pendingOnlineOrders,
     activeShift,
-    setIsShiftModalOpen
+    setIsShiftModalOpen,
+    setIsLocalDataDrawerOpen
   } = usePOSStore();
 
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
@@ -224,6 +226,16 @@ export const POSHeader: React.FC<POSHeaderProps> = ({ onLogout }) => {
           <kbd className="hidden md:inline-block px-1 py-0.2 bg-zinc-800 text-zinc-400 text-[9px] rounded border border-zinc-700 font-mono">
             F10
           </kbd>
+        </button>
+
+                {/* Local Data, Queue & Backups */}
+        <button
+          onClick={() => setIsLocalDataDrawerOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-emerald-400 hover:text-emerald-300 transition active:scale-95 cursor-pointer"
+          title="Local Data, Sync Queue & CSV Backups"
+        >
+          <Database className="w-4 h-4 text-emerald-400" />
+          <span className="hidden sm:inline">Backups</span>
         </button>
 
         {/* Dashboard BI Hub */}

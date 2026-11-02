@@ -15,6 +15,7 @@ import { ProductStockDrawer } from '../components/pos/ProductStockDrawer';
 import { PrinterSettingsModal } from '../components/pos/PrinterSettingsModal';
 import { PrintQueueDrawer } from '../components/pos/PrintQueueDrawer';
 import { ShiftManagementModal } from '../components/pos/ShiftManagementModal';
+import { LocalDataBackupsDrawer } from '../components/pos/LocalDataBackupsDrawer';
 import { UtensilsCrossed, Globe, ShoppingBag } from 'lucide-react';
 import { OnlineOrderPrintListener } from '../services/OnlineOrderPrintListener';
 import { OfflineBillingQueueService } from '../services/OfflineBillingQueueService';
@@ -409,6 +410,9 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
 
       {/* 12. Cashier Shift & Cash Drawer Reconciliation Modal (F6) */}
       <ShiftManagementModal />
+
+      {/* 13. Local Data & Backups Drawer */}
+      <LocalDataBackupsDrawer />
     </div>
   );
 };

@@ -19,8 +19,9 @@ Object.defineProperty(global, 'navigator', {
 });
 
 // In-memory fake IndexedDB store for PosIndexedDbService testing
-import { PosIndexedDbService, OfflineBillRecord } from '../services/PosIndexedDbService.ts';
+import { PosIndexedDbService, OfflineBillRecord, computeSha256 } from '../services/PosIndexedDbService.ts';
 import { OfflineBillingQueueService } from '../services/OfflineBillingQueueService.ts';
+import { PosCsvExportService } from '../services/PosCsvExportService.ts';
 import { POSCompletedBill } from '../types/pos.ts';
 
 test('Olive Pizza POS — Offline Queue & Persistence Failure Safety Test Suite', async (t) => {
@@ -188,6 +189,74 @@ test('Olive Pizza POS — Offline Queue & Persistence Failure Safety Test Suite'
       activeIdempotencyKeyRef = 'uuid_trans_B_67890';
     }
     assert.notStrictEqual(activeIdempotencyKeyRef, attempt1, 'Subsequent transaction must generate fresh key');
+  });
+
+  await t.test('RFC 4180 & CWE-1236: CSV export strictly protects against formula injection while preserving negative numbers', () => {
+    // 1. Formula Injection attempts (must be prefixed with single quote; RFC 4180 escapes quotes when present)
+    assert.strictEqual(PosCsvExportService.sanitizeCell('=cmd|"/c calc"!A0'), '"\'=cmd|""/c calc""!A0"');
+        assert.strictEqual(PosCsvExportService.sanitizeCell('@SUM(1+1)'), "'@SUM(1+1)");
+    assert.strictEqual(PosCsvExportService.sanitizeCell('+cmd'), "'+cmd");
+    assert.strictEqual(PosCsvExportService.sanitizeCell('-cmd'), "'-cmd");
+
+    // 2. Pure numbers & negative currency values (must NOT be prefixed with quote)
+    assert.strictEqual(PosCsvExportService.sanitizeCell(-50.25), "-50.25");
+    assert.strictEqual(PosCsvExportService.sanitizeCell("-50.25"), "-50.25");
+    assert.strictEqual(PosCsvExportService.sanitizeCell(1200), "1200");
+    assert.strictEqual(PosCsvExportService.sanitizeCell("1200.00"), "1200.00");
+    assert.strictEqual(PosCsvExportService.sanitizeCell(0), "0");
+
+    // 3. RFC 4180 Escaping (commas and quotes)
+    const escaped = PosCsvExportService.sanitizeCell('Olive Pizza, "Supreme" Special');
+    assert.strictEqual(escaped, '"Olive Pizza, ""Supreme"" Special"');
+
+    // 4. Full CSV build with CRLF
+    const csv = PosCsvExportService.buildCsv(
+      ['Bill No', 'Subtotal', 'Formula Risk', 'Discount'],
+      [
+        ['PROV-1', 450, '=2+2', -50],
+        ['PROV-2', 600, 'Normal Note', 0]
+      ]
+    );
+    assert.ok(csv.includes('\r\n'), 'Must use RFC 4180 standard CRLF record separators');
+    assert.ok(csv.includes("PROV-1,450,'=2+2,-50"), 'Formula must be escaped and negative discount preserved');
+  });
+
+  await t.test('Local Backup Integrity: Snapshot verification computes SHA-256 and detects tampering', async () => {
+    const validSnapshot = {
+      schemaVersion: 2,
+      app: 'OLIVE_PIZZA_POS' as const,
+      createdAt: new Date().toISOString(),
+      franchiseId: 'franchise_main',
+      branchId: 'branch_rjn_01',
+      checksumSha256: '',
+      data: {
+        bills: [
+          { idempotencyKey: 'key_1', billNumber: 'PROV-101', status: 'SYNCED', finalTotal: 350 } as any,
+          { idempotencyKey: 'key_2', billNumber: 'PROV-102', status: 'PENDING', finalTotal: 550 } as any
+        ],
+        backups: [],
+        csvExports: []
+      }
+    };
+
+    validSnapshot.checksumSha256 = await computeSha256(JSON.stringify(validSnapshot.data));
+
+    // Test valid snapshot
+    const validation = await PosIndexedDbService.validateBackupSnapshot(validSnapshot);
+    assert.strictEqual(validation.valid, true, 'Valid snapshot must pass verification');
+    assert.strictEqual(validation.summary?.totalBills, 2);
+
+    // Test tampered snapshot (manipulated payload)
+    const tamperedSnapshot = JSON.parse(JSON.stringify(validSnapshot));
+    tamperedSnapshot.data.bills[0].finalTotal = 999999; // Tampered!
+    const tamperedValidation = await PosIndexedDbService.validateBackupSnapshot(tamperedSnapshot);
+    assert.strictEqual(tamperedValidation.valid, false, 'Tampered snapshot must be rejected');
+    assert.match(tamperedValidation.error || '', /Integrity check failed/);
+
+    // Test invalid schema snapshot
+    const corruptSnapshot: any = { schemaVersion: 1 };
+    const corruptValidation = await PosIndexedDbService.validateBackupSnapshot(corruptSnapshot);
+    assert.strictEqual(corruptValidation.valid, false, 'Incomplete snapshot schema must be rejected');
   });
 
 });

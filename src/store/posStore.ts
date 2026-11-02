@@ -78,6 +78,10 @@ interface POSState {
   // Bill History Drawer
   isHistoryOpen: boolean;
   setIsHistoryOpen: (open: boolean) => void;
+  // Local Data & Backups Drawer
+  isLocalDataDrawerOpen: boolean;
+  setIsLocalDataDrawerOpen: (open: boolean) => void;
+
 
   // Last Completed Bill
   lastCompletedBill: POSCompletedBill | null;
@@ -584,6 +588,9 @@ export const usePOSStore = create<POSState>((set, get) => ({
 
   isHistoryOpen: false,
   setIsHistoryOpen: (isHistoryOpen) => set({ isHistoryOpen }),
+  isLocalDataDrawerOpen: false,
+  setIsLocalDataDrawerOpen: (isLocalDataDrawerOpen) => set({ isLocalDataDrawerOpen }),
+
 
   lastCompletedBill: null,
   setLastCompletedBill: (lastCompletedBill) => set({ lastCompletedBill }),

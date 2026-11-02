@@ -126,12 +126,22 @@ export class OfflineBillingQueueService {
         const acknowledgedMap = new Map<string, { permanentBillNo?: number; canonicalNumber?: string }>();
         if (Array.isArray(data.results)) {
           for (const item of data.results) {
+            const key = item.idempotencyKey;
             if (item.success || item.status === 'SYNCED' || item.status === 'ALREADY_SYNCED') {
-              if (item.idempotencyKey) {
-                acknowledgedMap.set(item.idempotencyKey, {
+              if (key) {
+                acknowledgedMap.set(key, {
                   permanentBillNo: item.permanentBillNo,
                   canonicalNumber: item.permanentBillNo ? `#${item.permanentBillNo}` : item.billNumber
                 });
+                await PosIndexedDbService.markBillSynced(key, item.permanentBillNo, item.permanentBillNo ? `#${item.permanentBillNo}` : item.billNumber);
+              }
+            } else if (item.status === 'REVIEW_REQUIRED') {
+              if (key) {
+                await PosIndexedDbService.markBillStatus(key, 'REVIEW_REQUIRED', { lastError: item.error });
+              }
+            } else if (item.status === 'FAILED') {
+              if (key) {
+                await PosIndexedDbService.markBillStatus(key, 'RETRY_REQUIRED', { lastError: item.error });
               }
             }
           }
@@ -148,11 +158,8 @@ export class OfflineBillingQueueService {
           localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remainingQueue));
         }
 
-        // Mark individual confirmed bills as synced in IndexedDB and notify cashier
+        // Update active store lastCompletedBill if matching
         for (const [key, details] of acknowledgedMap.entries()) {
-          await PosIndexedDbService.markBillSynced(key, details.permanentBillNo, details.canonicalNumber);
-
-          // Update active store lastCompletedBill if matching
           const currentLastBill = usePOSStore.getState().lastCompletedBill;
           if (currentLastBill && (currentLastBill.idempotencyKey === key || currentLastBill.orderId === key)) {
             usePOSStore.getState().setLastCompletedBill({
@@ -164,6 +171,14 @@ export class OfflineBillingQueueService {
             });
           }
         }
+
+        // Record persistent sync metadata in IndexedDB
+        await PosIndexedDbService.setSyncMeta('last_sync', {
+          timestamp: new Date().toISOString(),
+          status: 'SUCCESS',
+          syncedCount: acknowledgedMap.size,
+          remainingCount: remainingQueue.length
+        });
 
         const syncedCount = acknowledgedMap.size;
         if (syncedCount > 0) {
@@ -295,5 +310,17 @@ export class OfflineBillingQueueService {
       window.removeEventListener('offline', offlineListener);
       offlineListener = null;
     }
+  }
+  /**
+   * Retrieves the latest synchronization status and metadata.
+   */
+  public static async getLastSyncMeta(): Promise<{ lastSyncTime: string | null; isSyncing: boolean; pendingCount: number }> {
+    const meta = await PosIndexedDbService.getSyncMeta('last_sync');
+    const pending = await PosIndexedDbService.getPendingBills();
+    return {
+      lastSyncTime: meta?.timestamp || null,
+      isSyncing,
+      pendingCount: pending.length
+    };
   }
 }

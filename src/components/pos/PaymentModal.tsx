@@ -183,7 +183,18 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
         orderId = 'ord_off_' + Date.now() + '_' + idempotencyKey.slice(0, 8);
         const nextSeq = Number(localStorage.getItem('pos_provisional_bill_seq') || localStorage.getItem('pos_offline_bill_seq') || '1000') + 1;
         localStorage.setItem('pos_provisional_bill_seq', String(nextSeq));
-        provisionalReceiptNo = `PROV-${nextSeq}`;
+        
+        let terminalId = session.terminalId;
+        if (!terminalId || terminalId === 'TERM01') {
+          let persistentTermId = localStorage.getItem('pos_provisioned_terminal_id');
+          if (!persistentTermId) {
+            persistentTermId = 'TERM_' + (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().slice(0, 8).toUpperCase() : Math.random().toString(36).slice(2, 8).toUpperCase());
+            localStorage.setItem('pos_provisioned_terminal_id', persistentTermId);
+          }
+          terminalId = persistentTermId;
+        }
+
+        provisionalReceiptNo = `PROV-${terminalId}-${idempotencyKey}`;
         billNumber = provisionalReceiptNo; // Explicitly marked as PROV-... provisional receipt
       }
 
