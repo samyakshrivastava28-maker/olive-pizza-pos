@@ -7,6 +7,9 @@
 
 export type SoundType =
   | 'new_online_order'
+  | 'urgent_order'
+  | 'error_buzz'
+  | 'success_ding'
   | 'kot_printed'
   | 'soft_pop'
   | 'test';
@@ -102,6 +105,24 @@ export class SoundAlertEngine {
         this.playTone(659, 0.18, 'sine', 0.6, 0);
         this.playTone(784, 0.18, 'sine', 0.65, 0.12);
         this.playTone(1046, 0.35, 'triangle', 0.8, 0.24);
+        break;
+
+      case 'urgent_order':
+        // Three-tone repeating pulse: A5 -> D6 -> A5
+        this.playTone(880, 0.12, 'sawtooth', 0.7, 0);
+        this.playTone(1174, 0.15, 'sawtooth', 0.8, 0.14);
+        this.playTone(880, 0.2, 'sawtooth', 0.75, 0.30);
+        break;
+
+      case 'error_buzz':
+        // Low frequency saw/square drop
+        this.playTone(150, 0.25, 'sawtooth', 0.8, 0);
+        this.playTone(90, 0.3, 'square', 0.6, 0.15);
+        break;
+
+      case 'success_ding':
+        // Short high ding confirmation: A6 crisp exponential decay
+        this.playTone(1760, 0.15, 'sine', 0.9, 0);
         break;
 
       case 'kot_printed':
