@@ -2,7 +2,8 @@
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
-import { BACKEND_URL, invalidateMenuCache, fetchPOSApi } from '../lib/api';
+import { BACKEND_URL, invalidateMenuCache, invalidatePOSCache, fetchPOSApi } from '../lib/api';
+import { PosIndexedDbService } from '../services/PosIndexedDbService';
 import { POSCartItem, OrderSourceType, POSTerminalSession, POSCompletedBill, POSCustomerProfile, HeldBill, BranchOption, POSShift } from '../types/pos';
 
 export type CustomerLookupStatus = 'IDLE' | 'SEARCHING' | 'FOUND' | 'NOT_FOUND' | 'ERROR';
@@ -143,11 +144,16 @@ export const getPOSCalculations = (state: { items: POSCartItem[]; discountAmount
 
 const getStoredSession = (): POSTerminalSession | null => {
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
+    if (
+      typeof window !== 'undefined' &&
+      window.localStorage &&
+      typeof navigator !== 'undefined' &&
+      navigator.onLine === false
+    ) {
       const raw = localStorage.getItem('pos_session');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && (parsed.branchId || parsed.franchiseId)) {
+        if (parsed && parsed.branchId && parsed.franchiseId) {
           return parsed;
         }
       }
@@ -156,12 +162,24 @@ const getStoredSession = (): POSTerminalSession | null => {
   return null;
 };
 
+const clearPersistedPosState = () => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('pos_session');
+    localStorage.removeItem('pos_pin_verified');
+    localStorage.removeItem('pos_branch_id');
+    localStorage.removeItem('pos_franchise_id');
+    localStorage.removeItem('pos_terminal_id');
+    sessionStorage.clear();
+  }
+  invalidatePOSCache();
+};
+
 const initialSession = getStoredSession();
 
 export const usePOSStore = create<POSState>((set, get) => ({
   user: null,
   session: initialSession,
-  isAuthChecking: false,
+  isAuthChecking: typeof navigator === 'undefined' || navigator.onLine !== false,
   isAuthorized: !!initialSession,
   requiresPin: false,
   authStatus: null,
@@ -222,30 +240,38 @@ export const usePOSStore = create<POSState>((set, get) => ({
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
-        // Check for offline/persisted active session
-        try {
-          const rawSaved = localStorage.getItem('pos_session');
-          if (rawSaved) {
-            const savedSession = JSON.parse(rawSaved);
-            if (savedSession && savedSession.branchId && savedSession.franchiseId) {
-              set({
-                session: savedSession,
-                isAuthChecking: false,
-                isAuthorized: true,
-                activeBranchId: savedSession.branchId,
-                activeFranchiseId: savedSession.franchiseId,
-                isOwner: savedSession.role === 'owner' || savedSession.isOwnerMode || false
-              });
-              return;
+        // Check for offline persisted active session ONLY when genuinely offline
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          try {
+            const rawSaved = localStorage.getItem('pos_session');
+            if (rawSaved) {
+              const savedSession = JSON.parse(rawSaved);
+              if (savedSession && savedSession.branchId && savedSession.franchiseId) {
+                set({
+                  session: savedSession,
+                  isAuthChecking: false,
+                  isAuthorized: true,
+                  activeBranchId: savedSession.branchId,
+                  activeFranchiseId: savedSession.franchiseId,
+                  isOwner: savedSession.role === 'owner' || savedSession.isOwnerMode || false
+                });
+                return;
+              }
             }
-          }
-        } catch {}
+          } catch {}
+        } else {
+          clearPersistedPosState();
+        }
 
         set({
           user: null,
           session: null,
           isAuthChecking: false,
           isAuthorized: false,
+          requiresPin: false,
+          isOwner: false,
+          activeBranchId: '',
+          activeFranchiseId: '',
           authStatus: null
         });
         return;
@@ -394,11 +420,19 @@ export const usePOSStore = create<POSState>((set, get) => ({
     } catch (e) {
       console.warn('[POSStore] Logout error:', e);
     }
+    clearPersistedPosState();
+    await PosIndexedDbService.clearAllData().catch(() => {});
     set({
       user: null,
       session: null,
       isAuthChecking: false,
-      isAuthorized: false
+      isAuthorized: false,
+      requiresPin: false,
+      isOwner: false,
+      activeBranchId: '',
+      activeFranchiseId: '',
+      heldBills: [],
+      items: []
     });
   },
 
@@ -408,25 +442,16 @@ export const usePOSStore = create<POSState>((set, get) => ({
   setAvailableBranches: (availableBranches) => set({ availableBranches }),
   activeBranchId: initialSession?.branchId || (typeof window !== 'undefined' ? localStorage.getItem('pos_branch_id') || '' : ''),
   activeFranchiseId: initialSession?.franchiseId || '',
-  switchBranchContext: (branchId, franchiseId, branchName) => {
-    invalidateMenuCache(branchId);
-    localStorage.setItem('pos_branch_id', branchId);
-    set((state) => ({
-      activeBranchId: branchId,
-      activeFranchiseId: franchiseId,
-      session: state.session ? {
-        ...state.session,
-        branchId,
-        franchiseId,
-        branchName
-      } : null,
-      items: [],
-      discountAmount: 0,
-      customerName: '',
-      customerPhone: '',
-      customerId: null,
-      tableNumber: 'T-1'
-    }));
+  switchBranchContext: (branchId, franchiseId, _branchName) => {
+    const currentSession = get().session;
+    if (currentSession?.branchId && branchId !== currentSession.branchId) {
+      console.warn('[POSStore] Cross-branch switching is disabled inside POS. Assigned branch:', currentSession.branchId);
+      return;
+    }
+    if (currentSession?.franchiseId && franchiseId && franchiseId !== currentSession.franchiseId) {
+      console.warn('[POSStore] Cross-franchise switching is disabled inside POS. Assigned franchise:', currentSession.franchiseId);
+      return;
+    }
   },
 
   orderSource: 'POS_DINE_IN',

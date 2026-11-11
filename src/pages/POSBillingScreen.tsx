@@ -68,7 +68,7 @@ export const POSBillingScreen: React.FC<POSBillingScreenProps> = ({ onLogout }) 
     let isSubscribed = true;
 
     // 1. Instant 0ms cache restore from IndexedDB to eliminate blank screens
-    PosIndexedDbService.getBranchCatalog(activeBranchId).then((cached) => {
+    PosIndexedDbService.getBranchCatalog(activeBranchId, activeFranchiseId).then((cached) => {
       if (isSubscribed && cached && cached.length > 0) {
         setProducts(cached);
         setIsProductsLoading(false);

@@ -38,7 +38,10 @@ export const ProductStockDrawer: React.FC = () => {
   const [isSavingPrice, setIsSavingPrice] = useState(false);
 
   const branchId = session?.branchId || '';
-  const canEditPrice = true; // Permitted for POS operators and managers
+  const normalizedRole = (session?.role || '').toLowerCase().trim();
+  const canEditPrice =
+    Boolean(session?.isOwnerMode) ||
+    ['restaurant_manager', 'manager', 'franchise_owner', 'franchise_manager', 'owner', 'platform_owner', 'admin', 'developer'].includes(normalizedRole);
 
   const loadStock = async () => {
     if (!branchId) return;

@@ -171,7 +171,7 @@ export class PosIndexedDbService {
   /**
    * Retrieve cached branch product catalog from IndexedDB
    */
-  public static async getBranchCatalog(branchId: string): Promise<POSProduct[] | null> {
+  public static async getBranchCatalog(branchId: string, franchiseId?: string): Promise<POSProduct[] | null> {
     try {
       const db = await this.getDB();
       const tx = db.transaction(CATALOG_STORE, 'readonly');
@@ -181,7 +181,15 @@ export class PosIndexedDbService {
         const req = store.get(branchId);
         req.onsuccess = () => {
           const res = req.result as CachedCatalog | undefined;
-          resolve(res && Array.isArray(res.products) ? res.products : null);
+          if (!res || !Array.isArray(res.products)) {
+            resolve(null);
+            return;
+          }
+          if (franchiseId && res.franchiseId && res.franchiseId !== franchiseId) {
+            resolve(null);
+            return;
+          }
+          resolve(res.products);
         };
         req.onerror = () => resolve(null);
       });
@@ -659,6 +667,30 @@ export class PosIndexedDbService {
         };
       }
     });
+  }
+
+  /**
+   * Clear all persisted offline POS data across stores on logout or session switch.
+   */
+  public static async clearAllData(): Promise<void> {
+    try {
+      const db = await this.getDB();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(
+          [CATALOG_STORE, BILLS_STORE, BACKUPS_STORE, CSV_EXPORTS_STORE, SYNC_META_STORE],
+          'readwrite'
+        );
+        tx.objectStore(CATALOG_STORE).clear();
+        tx.objectStore(BILLS_STORE).clear();
+        tx.objectStore(BACKUPS_STORE).clear();
+        tx.objectStore(CSV_EXPORTS_STORE).clear();
+        tx.objectStore(SYNC_META_STORE).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('Failed to clear POS IndexedDB stores'));
+      });
+    } catch (err) {
+      console.warn('[PosIndexedDb] Failed to clear stores:', err);
+    }
   }
 
 }

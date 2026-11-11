@@ -205,7 +205,9 @@ export async function fetchApi<T = any>(
 ): Promise<T> {
   const method = (options.method || 'GET').toUpperCase();
   const isGet = method === 'GET';
-  const cleanKey = `GET:${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const userScope = auth.currentUser?.uid || 'anon';
+  const branchScope = (typeof window !== 'undefined' ? localStorage.getItem('pos_branch_id') : '') || '';
+  const cleanKey = `${userScope}:${branchScope}:GET:${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
   const ttlMs = cacheOptions?.ttlMs ?? 0;
   const forceRefresh = cacheOptions?.forceRefresh ?? false;
   const persist = cacheOptions?.persist ?? true;
