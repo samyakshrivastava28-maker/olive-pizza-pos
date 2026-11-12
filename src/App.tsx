@@ -6,12 +6,11 @@ import { POSBillingScreen } from './pages/POSBillingScreen';
 import { POSDashboardPage } from './pages/POSDashboardPage';
 import { POSLoginPage } from './pages/POSLoginPage';
 import { POSTerminalActivationPage } from './pages/POSTerminalActivationPage';
-import { AppRestrictedScreen } from './components/common/AppRestrictedScreen';
 import POSPushNotificationManager from './services/POSPushNotificationManager';
 import { POSPinUnlockScreen } from './components/pos/POSPinUnlockScreen';
 
 export function App() {
-  const { session, user, isAuthChecking, isAuthorized, requiresPin, authStatus, restrictedReason, restrictedEmail, clearRestricted, initAuth, logout } = usePOSStore();
+  const { session, user, isAuthChecking, isAuthorized, requiresPin, initAuth, logout } = usePOSStore();
   const [isPinUnlocked, setIsPinUnlocked] = React.useState<boolean>(() => {
     return sessionStorage.getItem('pos_pin_unlocked') === 'true';
   });
@@ -29,27 +28,6 @@ export function App() {
           <p className="text-xs text-slate-400 font-medium">Verifying POS Terminal Session...</p>
         </div>
       </div>
-    );
-  }
-
-  if (restrictedReason) {
-    return (
-      <AppRestrictedScreen
-        appName="Olive Pizza POS & Billing"
-        userEmail={restrictedEmail || undefined}
-        reason={restrictedReason}
-        status={authStatus}
-        onRetry={() => {
-          clearRestricted();
-          initAuth();
-        }}
-        onSignOut={async () => {
-          clearRestricted();
-          sessionStorage.removeItem('pos_pin_unlocked');
-          setIsPinUnlocked(false);
-          await logout();
-        }}
-      />
     );
   }
 

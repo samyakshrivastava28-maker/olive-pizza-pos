@@ -1,570 +1,519 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { usePOSStore } from '../store/posStore';
 import { auth } from '../lib/firebase';
-import { 
-  signInWithEmailAndPassword, 
-  signInWithPopup, 
-  signInWithCredential,
-  signInWithCustomToken,
-  GoogleAuthProvider, 
-  signOut,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  User as FirebaseUser 
-} from 'firebase/auth';
-import { Capacitor } from '@capacitor/core';
+import { signInWithCustomToken } from 'firebase/auth';
 import { BACKEND_URL } from '../lib/api';
 import { 
-  Monitor, 
-  KeyRound, 
-  User, 
+  Mail, 
+  Phone, 
   ShieldCheck, 
-  Phone,
-  HelpCircle,
-  Sparkles
+  ArrowRight, 
+  AlertCircle, 
+  RotateCcw, 
+  ArrowLeft, 
+  Lock, 
+  Receipt
 } from 'lucide-react';
 import { AppLogo } from '../components/common/AppLogo';
 import toast from 'react-hot-toast';
 import { requestPostLoginNotificationPermissions } from '../services/notificationPermissionService';
 
 interface POSLoginPageProps {
-  onLoginSuccess: () => void;
+  onLoginSuccess?: () => void;
 }
 
 export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) => {
-  const { setSession } = usePOSStore();
-
+  // Step 1: 'check' (Account Eligibility), Step 2: 'verify' (6-Digit Temporary Code)
+  const [step, setStep] = useState<'check' | 'verify'>('check');
   const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('');
-  const [phoneOtp, setPhoneOtp] = useState('');
-  const [confirmationResult, setConfirmationResult] = useState<any>(null);
-  const [otpSent, setOtpSent] = useState(false);
-  const [phoneLoading, setPhoneLoading] = useState(false);
-  const [terminalId] = useState(() => localStorage.getItem('pos_terminal_id') || '');
-  const [branchId] = useState(() => localStorage.getItem('pos_branch_id') || '');
-  const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
-  const [requestingReset, setRequestingReset] = useState(false);
+  const [identifierInput, setIdentifierInput] = useState('');
+  
+  // Verification Code State
+  const [code, setCode] = useState(['', '', '', '', '', '']);
+  const [verifiedEmail, setVerifiedEmail] = useState('');
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [resolvedName, setResolvedName] = useState('');
+  
+  // Timers & Loading
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
 
-  // Authorize User Role & Permissions via Server Gateway
-  const verifyUserAuthorization = async (user: FirebaseUser): Promise<{ isAuthorized: boolean; user?: any; role: string; name: string; denialReason?: string }> => {
-    const userEmail = (user.email || '').toLowerCase().trim();
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const { clearRestricted } = usePOSStore();
+
+  useEffect(() => {
+    clearRestricted();
+  }, [clearRestricted]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  // Handle Step 1: Check Account Eligibility
+  const handleCheckEligibility = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const cleanInput = identifierInput.trim();
+    if (!cleanInput) {
+      setError(authMethod === 'email' ? 'Please enter your registered staff email address.' : 'Please enter your 10-digit mobile number.');
+      return;
+    }
+
+    if (authMethod === 'email' && !cleanInput.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    if (authMethod === 'phone' && cleanInput.replace(/\D/g, '').length < 10) {
+      setError('Please enter a valid 10-digit mobile phone number.');
+      return;
+    }
+
+    setIsLoading(true);
 
     try {
-      const idToken = await user.getIdToken();
-      const resp = await fetch(`${BACKEND_URL}/api/auth/authorize-app`, {
+      const res = await fetch(`${BACKEND_URL}/api/auth/management/check-eligibility`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
           'X-App-Target': 'POS',
           'X-App-Source': 'POS'
         },
         body: JSON.stringify({
-          targetApp: 'POS',
-          terminalId: terminalId || undefined,
-          requestedBranchId: branchId || undefined
+          identifier: cleanInput,
+          targetApp: 'POS'
         })
       });
 
-      const authData = await resp.json().catch(() => null);
+      const resp = await res.json();
 
-      if (resp.status === 429) {
-        return {
-          isAuthorized: false,
-          role: 'none',
-          name: '',
-          denialReason: authData?.reason || 'Too many login attempts. Please try again later.'
-        };
-      }
-
-      if (resp.ok && authData?.authorized) {
-        const u = authData.user;
-        const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || u.isOwnerMode;
-        let resolvedBranchId = u.branchId || '';
-        let resolvedFranchiseId = u.franchiseId || '';
-        if (resolvedBranchId === 'fra_primary') resolvedBranchId = '';
-        if (resolvedFranchiseId === 'fra_primary') resolvedFranchiseId = '';
-
-        if (!resolvedBranchId || !resolvedFranchiseId) {
-          return {
-            isAuthorized: false,
-            role: 'none',
-            name: '',
-            denialReason: 'POS access denied: No authorized franchise or branch scope assigned to this account.'
-          };
-        }
-        u.branchId = resolvedBranchId;
-        u.franchiseId = resolvedFranchiseId;
-        return {
-          isAuthorized: true,
-          user: u,
-          role: u.role || 'pos_operator',
-          name: u.name || user.displayName || userEmail.split('@')[0]
-        };
-      } else {
-        const denialReason = authData?.reason || 'This account is not authorized to use the Olive Pizza POS terminal.';
-        return {
-          isAuthorized: false,
-          role: 'unauthorized',
-          name: user.displayName || 'Operator',
-          denialReason
-        };
-      }
-    } catch (netErr: any) {
-      console.warn('[POS Auth] Server check failed:', netErr);
-      return {
-        isAuthorized: false,
-        role: 'unauthorized',
-        name: user.displayName || 'Operator',
-        denialReason: 'Unable to verify account authorization with Olive Pizza server.'
-      };
-    }
-  };
-
-  const finalizeSession = (uid: string, cashierName: string, serverUser?: any) => {
-    const assignedFranchiseId = serverUser?.franchiseId;
-    const assignedBranchId = serverUser?.branchId;
-    const resolvedTerminalId = serverUser?.terminalId || `pos_${assignedFranchiseId}`;
-
-    if (!assignedFranchiseId || !assignedBranchId) {
-      toast.error('Access denied: No franchise or branch scope assigned to this account.');
-      return;
-    }
-
-    localStorage.setItem('pos_terminal_id', resolvedTerminalId);
-    localStorage.setItem('pos_branch_id', assignedBranchId);
-    localStorage.setItem('pos_franchise_id', assignedFranchiseId);
-
-    setSession({
-      cashierName,
-      cashierUid: uid,
-      terminalId: resolvedTerminalId,
-      branchId: assignedBranchId,
-      branchName: serverUser?.branchName || 'Olive Pizza',
-      franchiseId: assignedFranchiseId,
-      organizationId: serverUser?.organizationId || 'org_olive_pizza',
-      role: serverUser?.role || 'pos_operator',
-      isOwnerMode: serverUser?.role === 'owner' || serverUser?.role === 'admin'
-    });
-
-    toast.success(`Welcome ${cashierName}! POS authenticated.`);
-    requestPostLoginNotificationPermissions().catch(() => {});
-    onLoginSuccess();
-  };
-
-  // 1. Email / Password Login Handler
-  const handleEmailLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email) {
-      toast.error('Please enter your POS account email.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const userCred = await signInWithEmailAndPassword(auth, email.trim(), password);
-      const user = userCred.user;
-
-      // Authorize with server
-      const authCheck = await verifyUserAuthorization(user);
-      if (!authCheck.isAuthorized) {
-        await signOut(auth);
-        usePOSStore.setState({
-          user: null,
-          session: null,
-          isAuthorized: false,
-          restrictedReason: authCheck.denialReason || 'Access Denied: Terminal restricted to authorized store staff.',
-          restrictedEmail: user.email || ''
-        });
-        toast.error(authCheck.denialReason || 'Access Denied.');
-        setLoading(false);
+      if (!resp.success || !resp.eligible) {
+        setError(resp.message || 'This account is not verified or authorized for POS Terminal operation. Please contact Olive Pizza administration.');
+        setIsLoading(false);
         return;
       }
 
-      finalizeSession(user.uid, authCheck.name, authCheck.user);
+      setVerifiedEmail(resp.email || cleanInput);
+      setMaskedEmail(resp.maskedEmail || resp.email || cleanInput);
+      setResolvedName(resp.name || 'POS Cashier');
+      setResendCooldown(60);
+      setCode(['', '', '', '', '', '']);
+      setStep('verify');
+      toast.success(resp.message || 'Verification code sent to your email!');
+
+      setTimeout(() => {
+        inputRefs.current[0]?.focus();
+      }, 100);
     } catch (err: any) {
-      console.error('[POS Login Error]', err);
-      const msg = err.code === 'auth/invalid-credential' ? 'Invalid email or password.' : (err.message || 'Login failed');
-      toast.error(msg);
+      setError(err?.message || 'Unable to verify account eligibility. Please check your connection and retry.');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  // 2. Phone OTP Login Handler
-  const handleSendPhoneOtp = async (e: React.FormEvent) => {
+  // Handle Step 2: Code Digit Input
+  const handleDigitChange = (index: number, val: string) => {
+    const clean = val.replace(/\D/g, '');
+    if (!clean && val !== '') return;
+
+    const newCode = [...code];
+
+    if (clean.length > 1) {
+      const pastedDigits = clean.slice(0, 6).split('');
+      pastedDigits.forEach((d, i) => {
+        if (i < 6) newCode[i] = d;
+      });
+      setCode(newCode);
+      const nextFocus = Math.min(pastedDigits.length, 5);
+      inputRefs.current[nextFocus]?.focus();
+      return;
+    }
+
+    newCode[index] = clean;
+    setCode(newCode);
+
+    if (clean && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !code[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    if (!phone || phone.replace(/\D/g, '').length < 10) {
-      toast.error('Please enter a valid 10-digit phone number');
-      return;
-    }
-
-    setPhoneLoading(true);
-    try {
-      let recaptcha = (window as any).posRecaptchaVerifier;
-      if (!recaptcha) {
-        recaptcha = new RecaptchaVerifier(auth, 'pos-recaptcha-container', {
-          size: 'invisible',
-        });
-        (window as any).posRecaptchaVerifier = recaptcha;
-      }
-      const rawDigits = phone.replace(/\D/g, '').slice(-10);
-      const formatted = `+91${rawDigits}`;
-      const confirmation = await signInWithPhoneNumber(auth, formatted, recaptcha);
-      setConfirmationResult(confirmation);
-      setOtpSent(true);
-      toast.success('6-digit SMS code dispatched!');
-    } catch (err: any) {
-      console.error('[POS Phone Login] Error:', err);
-      toast.error(err.message || 'Failed to dispatch SMS code');
-    } finally {
-      setPhoneLoading(false);
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted.length > 0) {
+      const newCode = ['', '', '', '', '', ''];
+      pasted.split('').forEach((d, i) => {
+        newCode[i] = d;
+      });
+      setCode(newCode);
+      const nextFocus = Math.min(pasted.length, 5);
+      inputRefs.current[nextFocus]?.focus();
     }
   };
 
-  const handleVerifyPhoneOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!phoneOtp || phoneOtp.length !== 6) {
-      toast.error('Enter 6-digit SMS verification code');
-      return;
-    }
+  // Handle Resend Verification Code
+  const handleResendCode = async () => {
+    if (resendCooldown > 0 || isResending || !verifiedEmail) return;
 
-    setPhoneLoading(true);
+    setIsResending(true);
+    setError(null);
+
     try {
-      const res = await confirmationResult.confirm(phoneOtp);
-      const user = res.user;
-
-      const authCheck = await verifyUserAuthorization(user);
-      if (!authCheck.isAuthorized) {
-        await signOut(auth);
-        usePOSStore.setState({
-          user: null,
-          session: null,
-          isAuthorized: false,
-          restrictedReason: authCheck.denialReason || 'Access Denied: Terminal restricted to authorized store staff.',
-          restrictedEmail: user.phoneNumber || ''
-        });
-        toast.error(authCheck.denialReason || 'Access Denied.');
-        return;
-      }
-
-      finalizeSession(user.uid, authCheck.name, authCheck.user);
-    } catch (err: any) {
-      toast.error(err.message || 'Incorrect verification code');
-    } finally {
-      setPhoneLoading(false);
-    }
-  };
-
-  // 3. Google Sign-In Handler
-  const handleGoogleSignIn = async () => {
-    setGoogleLoading(true);
-    try {
-      let user: FirebaseUser | null = null;
-      const isElectron = Boolean(
-        typeof window !== 'undefined' && 
-        ((window as any).posHardware?.isDesktopPOS || (window as any).electronAuth?.isDesktop)
-      );
-
-      if (Capacitor.isNativePlatform()) {
-        const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
-        const res = await FirebaseAuthentication.signInWithGoogle();
-        const idToken = res.credential?.idToken;
-        if (!idToken) throw new Error('Failed to get Google ID token on mobile device.');
-        const credential = GoogleAuthProvider.credential(idToken);
-        const userCred = await signInWithCredential(auth, credential);
-        user = userCred.user;
-      } else if (isElectron && ((window as any).posHardware?.startBrowserAuth || (window as any).electronAuth?.startBrowserAuth)) {
-        // Desktop Electron: Authenticate via System Browser to bypass Chromium/file:// restrictions
-        toast.loading('Opening system browser to authenticate...', { id: 'browser-auth' });
-        const authUrl = `${BACKEND_URL}/api/auth/desktop-login?app=POS`;
-        const authFn = (window as any).posHardware?.startBrowserAuth || (window as any).electronAuth?.startBrowserAuth;
-        const authResult = await authFn(authUrl);
-
-        if (!authResult || !authResult.success) {
-          toast.dismiss('browser-auth');
-          throw new Error(authResult?.error || 'Authentication via browser was cancelled or timed out.');
-        }
-
-        toast.loading('Finalizing desktop session...', { id: 'browser-auth' });
-        if (authResult.customToken) {
-          const userCred = await signInWithCustomToken(auth, authResult.customToken);
-          user = userCred.user;
-        } else if (authResult.idToken) {
-          const credential = GoogleAuthProvider.credential(authResult.idToken);
-          const userCred = await signInWithCredential(auth, credential);
-          user = userCred.user;
-        } else {
-          toast.dismiss('browser-auth');
-          throw new Error('No authentication credential received from browser callback.');
-        }
-        toast.dismiss('browser-auth');
-      } else {
-        const provider = new GoogleAuthProvider();
-        provider.setCustomParameters({ prompt: 'select_account' });
-        const userCred = await signInWithPopup(auth, provider);
-        user = userCred.user;
-      }
-
-      const authCheck = await verifyUserAuthorization(user);
-      if (!authCheck.isAuthorized) {
-        await signOut(auth);
-        usePOSStore.setState({
-          user: null,
-          session: null,
-          isAuthorized: false,
-          restrictedReason: authCheck.denialReason || 'Access Denied: Terminal restricted to authorized store staff.',
-          restrictedEmail: user.email || ''
-        });
-        toast.error(authCheck.denialReason || 'Access Denied.');
-        return;
-      }
-
-      finalizeSession(user.uid, authCheck.name, authCheck.user);
-    } catch (err: any) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        toast.error('Google Sign-In failed: ' + (err.message || 'Authentication error'));
-      }
-    } finally {
-      setGoogleLoading(false);
-    }
-  };
-
-  // 4. Request Password Reset Workflow
-  const handleRequestPasswordReset = async () => {
-    if (!email || !email.includes('@')) {
-      toast.error('Please enter your POS account email address above first.');
-      return;
-    }
-
-    setRequestingReset(true);
-    const toastId = toast.loading('Submitting password reset request to Owner...');
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/password-reset/request`, {
+      const res = await fetch(`${BACKEND_URL}/api/auth/management/resend-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), appTarget: 'POS' })
+        body: JSON.stringify({ email: verifiedEmail })
       });
-      const data = await res.json();
-      if (data.success) {
-        toast.success(data.message || 'Reset request submitted to Store Owner!', { id: toastId, duration: 6000 });
-      } else {
-        toast.error(data.message || 'Failed to submit reset request', { id: toastId });
+
+      const resp = await res.json();
+      if (!resp.success) {
+        setError(resp.message || 'Failed to resend code. Please wait before retrying.');
+        return;
       }
+
+      setResendCooldown(60);
+      setCode(['', '', '', '', '', '']);
+      inputRefs.current[0]?.focus();
+      toast.success('Fresh verification code sent to your email.');
     } catch (err: any) {
-      toast.error(err.message || 'Request failed', { id: toastId });
+      setError(err?.message || 'Network error while requesting new code.');
     } finally {
-      setRequestingReset(false);
+      setIsResending(false);
+    }
+  };
+
+  // Handle Step 2: Verify Code and Sign In
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const fullCode = code.join('').trim();
+    if (fullCode.length !== 6) {
+      setError('Please enter the complete 6-digit verification code.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/auth/management/verify-code-signin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-App-Target': 'POS',
+          'X-App-Source': 'POS'
+        },
+        body: JSON.stringify({
+          email: verifiedEmail,
+          code: fullCode,
+          targetApp: 'POS'
+        })
+      });
+
+      const resp = await res.json();
+      if (!resp.success || !resp.customToken) {
+        setError(resp.message || 'Invalid or expired verification code. Please check your email or request a new code.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Sign in to Firebase Auth
+      const userCredential = await signInWithCustomToken(auth, resp.customToken);
+      const user = userCredential.user;
+      const u = resp.user || {};
+
+      const isOwnerAccount = u.role === 'owner' || u.role === 'platform_owner' || u.role === 'admin';
+
+      usePOSStore.setState({
+        user,
+        session: {
+          cashierUid: user.uid,
+          cashierName: u.name || user.displayName || resolvedName || 'POS Cashier',
+          email: user.email || verifiedEmail,
+          role: u.role || 'cashier',
+          terminalId: 'POS-01',
+          terminalName: 'Main Billing Counter (POS-01)',
+          branchId: u.branchId || 'branch_rjn_main',
+          branchName: u.branchName || 'Olive Pizza — Rajnandgaon HQ',
+          franchiseId: u.franchiseId || 'fra_rajnandgaon',
+          franchiseName: 'Olive Pizza — Rajnandgaon HQ',
+          organizationId: u.organizationId || 'org_olive_pizza_hq',
+          isOwnerMode: isOwnerAccount
+        },
+        activeBranchId: u.branchId || 'branch_rjn_main',
+        activeFranchiseId: u.franchiseId || 'fra_rajnandgaon',
+        isOwner: isOwnerAccount,
+        isAuthorized: true,
+        isAuthChecking: false,
+        restrictedReason: null,
+        restrictedEmail: null
+      });
+
+      sessionStorage.setItem('pos_pin_unlocked', 'true');
+      toast.success(`Welcome, ${u.name || resolvedName || 'Cashier'}!`);
+      requestPostLoginNotificationPermissions().catch(() => {});
+      if (onLoginSuccess) onLoginSuccess();
+    } catch (err: any) {
+      console.error('[POSLoginPage] Sign in verification error:', err);
+      setError(err?.message || 'Verification failed. Please check your code or request a new one.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[100dvh] w-full bg-[#0B0F17] flex items-center justify-center p-3.5 sm:p-6 select-none">
-      <div className="w-full max-w-md bg-[#0E1524] border border-slate-800 rounded-3xl p-5 sm:p-8 shadow-2xl space-y-5">
-        {/* Brand Header */}
-        <div className="flex flex-col items-center text-center space-y-2">
-          <AppLogo variant="full" size="xl" subtitle="POS & Billing System" />
-          <p className="text-[11px] text-slate-400 font-mono pt-1">
-            Terminal Access Control • Franchise & POS Operator Authentication
-          </p>
-        </div>
+    <div className="min-h-screen bg-[#07090E] text-slate-100 flex items-center justify-center p-4 font-sans relative overflow-hidden">
+      {/* Background Ambience */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] bg-orange-500/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-10 right-10 w-80 h-80 bg-amber-500/5 rounded-full blur-[100px] pointer-events-none" />
 
-        {/* Credential Selection Prompt: "How would you like to log in?" */}
-        <div className="space-y-2 pt-1">
-          <label className="text-xs font-bold text-slate-300 block text-center">
-            How would you like to log in?
-          </label>
-          <div className="grid grid-cols-2 gap-2 bg-[#080C14] p-1.5 rounded-2xl border border-slate-800">
-            <button
-              type="button"
-              onClick={() => setAuthMethod('email')}
-              className={`min-h-[44px] py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.98] ${
-                authMethod === 'email' ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <User size={14} /> Email
-            </button>
-            <button
-              type="button"
-              onClick={() => setAuthMethod('phone')}
-              className={`min-h-[44px] py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.98] ${
-                authMethod === 'phone' ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Phone size={14} /> Phone Number
-            </button>
+      <div className="w-full max-w-md bg-[#0D121D]/90 backdrop-blur-2xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10 space-y-6">
+        {/* Brand Header */}
+        <div className="text-center space-y-3">
+          <div className="flex justify-center">
+            <AppLogo size="lg" />
+          </div>
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 text-[11px] font-semibold tracking-wide uppercase mb-2">
+              <Receipt className="w-3.5 h-3.5" />
+              POS & Billing Terminal
+            </div>
+            <h1 className="text-2xl font-black text-white tracking-tight">
+              {step === 'check' ? 'Operator Access' : 'Verify One-Time Code'}
+            </h1>
+            <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto leading-relaxed">
+              {step === 'check'
+                ? 'Verify your authorized Olive Pizza terminal operator credentials to receive your access code.'
+                : 'Enter the 6-digit code sent to your registered operator email address.'}
+            </p>
           </div>
         </div>
 
-        {/* Email Login Option */}
-        {authMethod === 'email' && (
-          <form onSubmit={handleEmailLogin} className="space-y-4 text-xs">
-            <div>
-              <label className="font-bold text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                <User size={13} className="text-amber-400" /> POS Operator Email
-              </label>
-              <input
-                type="email"
-                required
-                placeholder="pos.branch@olivepizza.in"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-[#080C14] border border-slate-700 rounded-xl px-3.5 py-3 sm:py-2.5 text-base sm:text-sm text-white focus:outline-none focus:border-amber-500 min-h-[44px]"
-              />
-            </div>
+        {/* Global Error Notice */}
+        {error && (
+          <div className="p-3.5 rounded-2xl bg-red-950/40 border border-red-500/30 flex items-start gap-3 text-red-200 text-xs animate-in fade-in slide-in-from-top-1 duration-200">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 leading-relaxed">{error}</div>
+          </div>
+        )}
 
-            <div>
-              <label className="font-bold text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                <KeyRound size={13} className="text-amber-400" /> Password
-              </label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-[#080C14] border border-slate-700 rounded-xl px-3.5 py-3 sm:py-2.5 text-base sm:text-sm text-white focus:outline-none focus:border-amber-500 min-h-[44px]"
-              />
-            </div>
-
-            {/* Forgot Password Flow */}
-            <div className="flex justify-end pt-0.5">
+        {/* STEP 1: ELIGIBILITY PRE-CHECK */}
+        {step === 'check' && (
+          <form onSubmit={handleCheckEligibility} className="space-y-5">
+            {/* Method Tabs */}
+            <div className="grid grid-cols-2 p-1 bg-slate-950/80 border border-slate-800 rounded-2xl">
               <button
                 type="button"
-                onClick={handleRequestPasswordReset}
-                disabled={requestingReset}
-                className="min-h-[44px] py-1 text-[11px] text-amber-400/90 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer transition"
+                onClick={() => {
+                  setAuthMethod('email');
+                  setError(null);
+                }}
+                className={`flex items-center justify-center gap-2 py-2.5 text-xs font-semibold rounded-xl transition-all ${
+                  authMethod === 'email'
+                    ? 'bg-slate-800 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
               >
-                <HelpCircle size={13} />
-                <span>Forgot Password? Request Reset from Owner</span>
+                <Mail className="w-3.5 h-3.5" />
+                Email Address
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMethod('phone');
+                  setError(null);
+                }}
+                className={`flex items-center justify-center gap-2 py-2.5 text-xs font-semibold rounded-xl transition-all ${
+                  authMethod === 'phone'
+                    ? 'bg-slate-800 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+                Phone Number
               </button>
             </div>
 
+            {/* Input Field */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider block">
+                {authMethod === 'email' ? 'Registered Operator Email' : 'Registered Mobile Number'}
+              </label>
+              <div className="relative">
+                {authMethod === 'email' ? (
+                  <>
+                    <input
+                      type="email"
+                      value={identifierInput}
+                      onChange={e => setIdentifierInput(e.target.value)}
+                      placeholder="e.g. cashier@olivepizza.com or webhub2811@gmail.com"
+                      autoFocus
+                      required
+                      className="w-full pl-10 pr-4 py-3 bg-slate-950/80 border border-slate-800 rounded-2xl text-white text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all font-mono"
+                    />
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  </>
+                ) : (
+                  <>
+                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-slate-400 font-semibold border-r border-slate-800 pr-2.5">
+                      <span>🇮🇳</span>
+                      <span>+91</span>
+                    </div>
+                    <input
+                      type="tel"
+                      value={identifierInput}
+                      onChange={e => setIdentifierInput(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      placeholder="10-digit registered number"
+                      autoFocus
+                      required
+                      className="w-full pl-20 pr-4 py-3 bg-slate-950/80 border border-slate-800 rounded-2xl text-white text-sm placeholder-slate-500 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition-all font-mono"
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Security Notice */}
+            <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800 flex items-center gap-2.5 text-[11px] text-slate-400">
+              <Lock className="w-4 h-4 text-orange-500 shrink-0" />
+              <span>Passwordless verification. A 6-digit one-time code will be dispatched to your authorized email.</span>
+            </div>
+
+            {/* Action Submit */}
             <button
               type="submit"
-              disabled={loading}
-              className="w-full min-h-[48px] py-3.5 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-amber-500/20 active:scale-[0.98] flex items-center justify-center gap-2 mt-2 disabled:opacity-50 cursor-pointer"
+              disabled={isLoading || !identifierInput.trim()}
+              className="w-full py-3.5 px-4 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded-2xl transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Sparkles size={16} /> {loading ? 'Verifying Terminal Access...' : 'Sign In to POS Terminal'}
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Verifying Operator...</span>
+                </>
+              ) : (
+                <>
+                  <span>Verify Account & Continue</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
         )}
 
-        {/* Phone Login Option */}
-        {authMethod === 'phone' && (
-          <div className="space-y-4 text-xs">
-            <div id="pos-recaptcha-container" />
-            {!otpSent ? (
-              <form onSubmit={handleSendPhoneOtp} className="space-y-4">
-                <div>
-                  <label className="font-bold text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                    <Phone size={13} className="text-amber-400" /> Operator Registered Mobile
-                  </label>
-                  <div className="flex gap-2">
-                    <span className="bg-[#080C14] border border-slate-700 rounded-xl px-3.5 py-3 sm:py-2.5 text-base sm:text-sm text-slate-400 flex items-center font-mono shrink-0 min-h-[44px]">
-                      +91
-                    </span>
-                    <input
-                      type="tel"
-                      inputMode="tel"
-                      required
-                      placeholder="9876543210"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="w-full bg-[#080C14] border border-slate-700 rounded-xl px-3.5 py-3 sm:py-2.5 text-base sm:text-sm text-white focus:outline-none focus:border-amber-500 min-h-[44px]"
-                    />
-                  </div>
+        {/* STEP 2: TEMPORARY 6-DIGIT CODE VERIFICATION */}
+        {step === 'verify' && (
+          <form onSubmit={handleVerifyCode} className="space-y-6">
+            {/* Masked Email Info Pill */}
+            <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center text-orange-400 shrink-0">
+                  <Mail className="w-4 h-4" />
                 </div>
+                <div className="truncate">
+                  <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Sent to verified email</p>
+                  <p className="text-xs font-mono font-bold text-white truncate">{maskedEmail}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setStep('check');
+                  setError(null);
+                }}
+                className="text-[11px] font-semibold text-orange-400 hover:text-orange-300 hover:underline shrink-0 flex items-center gap-1"
+              >
+                <ArrowLeft className="w-3 h-3" />
+                Change
+              </button>
+            </div>
 
-                <button
-                  type="submit"
-                  disabled={phoneLoading}
-                  className="w-full min-h-[48px] py-3.5 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-amber-500/20 active:scale-[0.98] flex items-center justify-center gap-2 mt-2 disabled:opacity-50 cursor-pointer"
-                >
-                  <Sparkles size={16} /> {phoneLoading ? 'Dispatching SMS...' : 'Send SMS Verification Code'}
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleVerifyPhoneOtp} className="space-y-4">
-                <div>
-                  <label className="font-bold text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                    <KeyRound size={13} className="text-amber-400" /> 6-Digit SMS Code
-                  </label>
+            {/* 6-Digit Code Inputs */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider block text-center">
+                Enter 6-Digit Verification Code
+              </label>
+              <div className="flex justify-between gap-2 sm:gap-3" onPaste={handlePaste}>
+                {code.map((digit, idx) => (
                   <input
+                    key={idx}
+                    ref={el => { inputRefs.current[idx] = el; }}
                     type="text"
                     inputMode="numeric"
-                    pattern="[0-9]*"
-                    autoComplete="one-time-code"
-                    required
-                    maxLength={6}
-                    placeholder="123456"
-                    value={phoneOtp}
-                    onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, ''))}
-                    className="w-full bg-[#080C14] border border-slate-700 rounded-xl px-3.5 py-3 sm:py-2.5 text-center text-xl font-mono text-amber-400 tracking-widest focus:outline-none focus:border-amber-500 min-h-[48px]"
+                    maxLength={1}
+                    value={digit}
+                    onChange={e => handleDigitChange(idx, e.target.value)}
+                    onKeyDown={e => handleKeyDown(idx, e)}
+                    className="w-12 h-14 sm:w-14 sm:h-16 text-center text-xl sm:text-2xl font-black font-mono bg-slate-950 border-2 border-slate-800 focus:border-orange-500 focus:ring-4 focus:ring-orange-500/20 rounded-2xl text-white outline-none transition-all"
                   />
-                </div>
+                ))}
+              </div>
+            </div>
 
+            {/* Resend Code Section */}
+            <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+              <span>Didn't receive the code?</span>
+              {resendCooldown > 0 ? (
+                <span className="font-mono text-orange-400 font-semibold">
+                  Resend in {resendCooldown}s
+                </span>
+              ) : (
                 <button
-                  type="submit"
-                  disabled={phoneLoading}
-                  className="w-full min-h-[48px] py-3.5 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-amber-500/20 active:scale-[0.98] flex items-center justify-center gap-2 mt-2 disabled:opacity-50 cursor-pointer"
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={isResending}
+                  className="font-bold text-orange-400 hover:text-orange-300 transition-colors flex items-center gap-1 cursor-pointer"
                 >
-                  <Sparkles size={16} /> {phoneLoading ? 'Verifying...' : 'Verify & Sign In'}
+                  <RotateCcw className={`w-3.5 h-3.5 ${isResending ? 'animate-spin' : ''}`} />
+                  Resend Code
                 </button>
-              </form>
-            )}
-          </div>
+              )}
+            </div>
+
+            {/* Action Verify Submit */}
+            <button
+              type="submit"
+              disabled={isLoading || code.some(d => !d)}
+              className="w-full py-3.5 px-4 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded-2xl transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Verifying Code...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Verify & Unlock POS Terminal</span>
+                </>
+              )}
+            </button>
+          </form>
         )}
 
-        {/* Google Continue */}
-        <div className="pt-2">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex-1 h-px bg-slate-800" />
-            <span className="text-[10px] uppercase font-bold text-slate-500">Or single sign-on</span>
-            <div className="flex-1 h-px bg-slate-800" />
-          </div>
-
-          <button
-            type="button"
-            onClick={handleGoogleSignIn}
-            disabled={googleLoading || loading}
-            className="w-full min-h-[48px] py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
-          >
-            {googleLoading ? (
-              <span>Authenticating...</span>
-            ) : (
-              <>
-                <svg className="w-4 h-4" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                  />
-                </svg>
-                <span>Continue with Google</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        <div className="pt-2 border-t border-slate-800/80 text-center">
-          <p className="text-[10px] text-slate-500 flex items-center justify-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-            Zero-Trust Terminal Authorization Protected
+        {/* Security Footer Notice */}
+        <div className="pt-2 text-center border-t border-slate-800">
+          <p className="text-[10px] text-slate-500 flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-orange-500" />
+            Olive Pizza POS Hardened Session • Encrypted Hardware Handshake
           </p>
         </div>
       </div>
