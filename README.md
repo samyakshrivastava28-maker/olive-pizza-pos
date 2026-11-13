@@ -1,4 +1,4 @@
-# 🖨️ Olive Pizza POS Billing System (v2.2.0)
+# 🖨️ Olive Pizza POS Billing System (v2.3.0)
 
 [![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-6.0-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -20,7 +20,7 @@ High-speed, offline-first Point of Sale (POS) and thermal bill printing terminal
 
 ---
 
-## 📦 Latest Release Downloads (v2.2.0)
+## 📦 Latest Release Downloads (v2.3.0)
 
 Staged in `C:\Users\RYZEN\Downloads\OlivePizza_Release_Binaries`:
 - **Android APK**: `OlivePizza_POS_v2.2.0_Release.apk` (9.15 MB)
