@@ -8,9 +8,10 @@ import { POSLoginPage } from './pages/POSLoginPage';
 import { POSTerminalActivationPage } from './pages/POSTerminalActivationPage';
 import POSPushNotificationManager from './services/POSPushNotificationManager';
 import { POSPinUnlockScreen } from './components/pos/POSPinUnlockScreen';
+import { AppRestrictedScreen } from './components/common/AppRestrictedScreen';
 
 export function App() {
-  const { session, user, isAuthChecking, isAuthorized, requiresPin, initAuth, logout } = usePOSStore();
+  const { session, user, isAuthChecking, isAuthorized, requiresPin, initAuth, logout, restrictedReason, restrictedEmail, authStatus, clearRestricted } = usePOSStore();
   const [isPinUnlocked, setIsPinUnlocked] = React.useState<boolean>(() => {
     return sessionStorage.getItem('pos_pin_unlocked') === 'true';
   });
@@ -34,8 +35,26 @@ export function App() {
   const handleLogout = async () => {
     sessionStorage.removeItem('pos_pin_unlocked');
     setIsPinUnlocked(false);
+    clearRestricted();
     await logout();
   };
+
+  // If session or account is restricted / unassigned terminal, fail closed with explicit restriction screen
+  if (restrictedReason) {
+    return (
+      <AppRestrictedScreen
+        appName="Olive Pizza POS & Billing"
+        userEmail={restrictedEmail || user?.email || undefined}
+        reason={restrictedReason}
+        status={authStatus}
+        onRetry={() => {
+          clearRestricted();
+          initAuth();
+        }}
+        onSignOut={handleLogout}
+      />
+    );
+  }
 
   // If user is authenticated and authorized, enforce 4-digit PIN unlock if required by backend
   if (isAuthorized && session && requiresPin && !isPinUnlocked) {

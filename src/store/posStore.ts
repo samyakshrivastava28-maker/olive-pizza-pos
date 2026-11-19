@@ -153,7 +153,7 @@ const getStoredSession = (): POSTerminalSession | null => {
       const raw = localStorage.getItem('pos_session');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.branchId && parsed.franchiseId) {
+        if (parsed && parsed.branchId && parsed.franchiseId && parsed.terminalId) {
           return parsed;
         }
       }
@@ -246,7 +246,7 @@ export const usePOSStore = create<POSState>((set, get) => ({
             const rawSaved = localStorage.getItem('pos_session');
             if (rawSaved) {
               const savedSession = JSON.parse(rawSaved);
-              if (savedSession && savedSession.branchId && savedSession.franchiseId) {
+              if (savedSession && savedSession.branchId && savedSession.franchiseId && savedSession.terminalId) {
                 set({
                   session: savedSession,
                   isAuthChecking: false,
@@ -304,16 +304,33 @@ export const usePOSStore = create<POSState>((set, get) => ({
           const u = authData.user;
           const isPrivileged = u.role === 'owner' || u.role === 'admin' || u.role === 'developer' || u.isOwnerMode;
 
-          let resolvedBranchId = u.branchId || '';
-          let resolvedFranchiseId = u.franchiseId || '';
+          let resolvedBranchId = (u.branchId || '').trim();
+          let resolvedFranchiseId = (u.franchiseId || '').trim();
           // Strip placeholder IDs — real scoping must come from server response
           if (resolvedBranchId === 'fra_primary') resolvedBranchId = '';
           if (resolvedFranchiseId === 'fra_primary') resolvedFranchiseId = '';
 
+          const resolvedTerminalId = (u.terminalId || '').trim();
+
+          // Authoritative Terminal Enforcement: POS requires an explicitly assigned permitted terminal
+          if (!resolvedTerminalId) {
+            await signOut(auth).catch(() => {});
+            clearPersistedPosState();
+            set({
+              user: null,
+              session: null,
+              isAuthChecking: false,
+              isAuthorized: false,
+              authStatus: null,
+              restrictedReason: 'POS access denied: No permitted terminal assigned to this account in PostgreSQL app_users / terminal registry. Contact administrator to assign a terminal.',
+              restrictedEmail: emailLower
+            });
+            return;
+          }
+
           if (!resolvedBranchId || !resolvedFranchiseId) {
             await signOut(auth).catch(() => {});
-            localStorage.removeItem('pos_session');
-            sessionStorage.clear();
+            clearPersistedPosState();
             set({
               user: null,
               session: null,
@@ -329,18 +346,23 @@ export const usePOSStore = create<POSState>((set, get) => ({
           const newSession: POSTerminalSession = {
             cashierName: u.name || firebaseUser.displayName || emailLower.split('@')[0] || 'Cashier',
             cashierUid: firebaseUser.uid,
-            terminalId: u.terminalId || `pos_${resolvedFranchiseId}`,
+            terminalId: resolvedTerminalId,
             branchId: resolvedBranchId,
             branchName: u.branchName || 'Olive Pizza',
-            branchAddress: u.branchAddress || 'Station Road, G.E. Road, Rajnandgaon, CG - 491441',
-            branchPhone: u.branchPhone || '+91 91799 44445',
-            gstNumber: u.gstNumber || u.gstin || '22AAFCO8899K1Z4',
-            fssaiNumber: u.fssaiNumber || '10422000001234',
+            branchAddress: u.branchAddress || '',
+            branchPhone: u.branchPhone || '',
+            gstNumber: u.gstNumber || u.gstin || '',
+            fssaiNumber: u.fssaiNumber || '',
             franchiseId: resolvedFranchiseId,
             organizationId: u.organizationId || 'org_olive_pizza',
             role: u.role as any,
             isOwnerMode: isPrivileged
           };
+
+          localStorage.setItem('pos_terminal_id', resolvedTerminalId);
+          localStorage.setItem('pos_branch_id', resolvedBranchId);
+          localStorage.setItem('pos_franchise_id', resolvedFranchiseId);
+          localStorage.setItem('pos_session', JSON.stringify(newSession));
 
           set({
             user: firebaseUser,

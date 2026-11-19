@@ -118,8 +118,8 @@ export const LocalDataBackupsDrawer: React.FC = () => {
         createdAt: new Date().toISOString(),
         rowCount: result.rowCount,
         scope: {
-          branchId: session?.branchId || 'main_branch',
-          franchiseId: session?.franchiseId || 'fra_rajnandgaon'
+          branchId: session?.branchId || '',
+          franchiseId: session?.franchiseId || ''
         },
         status: 'SUCCESS'
       };
@@ -135,8 +135,8 @@ export const LocalDataBackupsDrawer: React.FC = () => {
   const handleCreateBackup = async () => {
     try {
       const scope = {
-        branchId: session?.branchId || 'main_branch',
-        franchiseId: session?.franchiseId || 'fra_rajnandgaon'
+        branchId: session?.branchId || '',
+        franchiseId: session?.franchiseId || ''
       };
       const snapshot = await PosIndexedDbService.exportLocalDatabaseSnapshot(scope);
 

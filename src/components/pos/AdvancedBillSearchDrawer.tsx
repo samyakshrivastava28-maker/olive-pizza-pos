@@ -146,7 +146,7 @@ export const AdvancedBillSearchDrawer: React.FC<AdvancedBillSearchDrawerProps> =
       session: {
         cashierName: order.cashier_name || session?.cashierName || 'Cashier',
         cashierUid: session?.cashierUid || 'pos_uid',
-        terminalId: order.terminal_id || session?.terminalId || (session?.franchiseId ? `pos_${session.franchiseId}` : ''),
+        terminalId: order.terminal_id || session?.terminalId || '',
         branchId: order.branch_id || session?.branchId || '',
         branchName: session?.branchName || 'Olive Pizza',
         franchiseId: order.franchise_id || session?.franchiseId || '',
@@ -501,7 +501,7 @@ export const AdvancedBillSearchDrawer: React.FC<AdvancedBillSearchDrawerProps> =
                       </div>
 
                       <div className="pt-2 flex items-center justify-between text-[11px] text-zinc-500 border-t border-zinc-900">
-                        <span>Terminal: <strong className="text-zinc-400 font-mono">{order.terminal_id || 'POS-01'}</strong> • Cashier: <strong className="text-zinc-400">{order.cashier_name || 'Staff'}</strong></span>
+                        <span>Terminal: <strong className="text-zinc-400 font-mono">{order.terminal_id || 'N/A'}</strong> • Cashier: <strong className="text-zinc-400">{order.cashier_name || 'Staff'}</strong></span>
                         <span className="font-mono">Subtotal: ₹{order.subtotal} | Tax: ₹{order.tax_amount}</span>
                       </div>
                     </div>

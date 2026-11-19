@@ -71,7 +71,7 @@ export default function POSPushNotificationManager() {
     if (isRegisteredRef.current) return;
     const branchId = session?.branchId || activeBranchId;
     if (!branchId) return;
-    const terminalId = session?.terminalId || (session?.franchiseId ? `pos_${session.franchiseId}` : 'pos_system');
+    const terminalId = session?.terminalId || 'pos_system';
 
     try {
       // Electron Desktop App

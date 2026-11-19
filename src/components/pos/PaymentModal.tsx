@@ -122,7 +122,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
       paymentDetails,
       session: {
         cashierName: session.cashierName || 'Counter Cashier',
-        terminalId: session.terminalId || `pos_${session.franchiseId}`,
+        terminalId: session.terminalId,
         branchId: session.branchId,
         branchName: session.branchName || 'Olive Pizza',
         franchiseId: session.franchiseId,
@@ -220,7 +220,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ onClose, onCompleteB
         session: {
           cashierName: session.cashierName || 'Counter Cashier',
           cashierUid: session.cashierUid || 'pos_uid',
-          terminalId: session.terminalId || `pos_${session.franchiseId}`,
+          terminalId: session.terminalId,
           branchId: session.branchId,
           branchName: session.branchName || 'Olive Pizza',
           franchiseId: session.franchiseId,

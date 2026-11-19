@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { auth } from './firebase';
 
-export const PRODUCTION_BACKEND_URL = 'https://olivepizza-owner.onrender.com';
+export const PRODUCTION_BACKEND_URL = 'https://olive-pizza-backend.onrender.com';
 
 export function getApiBaseUrl(): string {
   if (import.meta.env.VITE_API_BASE_URL) {
@@ -40,7 +40,7 @@ export function getPOSWebSocketUrl(): string {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${window.location.host}/ws`;
   }
-  return 'wss://olivepizza-owner.onrender.com/ws';
+  return 'wss://olive-pizza-backend.onrender.com/ws';
 }
 
 async function getToken(): Promise<string | null> {

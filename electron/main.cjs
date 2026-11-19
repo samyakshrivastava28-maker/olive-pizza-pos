@@ -35,7 +35,7 @@ function createWindow() {
 
   // Network interceptors for POS backend communication
   const sess = mainWindow.webContents.session;
-  const BACKEND_URL = 'https://olivepizza-owner.onrender.com';
+  const BACKEND_URL = 'https://olive-pizza-backend.onrender.com';
   const PLATFORM_ORIGIN = 'https://pos.olivepizza.in';
 
   sess.webRequest.onBeforeRequest((details, callback) => {

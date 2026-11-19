@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { usePOSStore } from '../store/posStore';
 import { auth } from '../lib/firebase';
-import { signInWithCustomToken } from 'firebase/auth';
+import { signInWithCustomToken, signOut } from 'firebase/auth';
 import { BACKEND_URL } from '../lib/api';
 import { 
   Mail, 
@@ -248,24 +248,91 @@ export const POSLoginPage: React.FC<POSLoginPageProps> = ({ onLoginSuccess }) =>
 
       const isOwnerAccount = u.role === 'owner' || u.role === 'platform_owner' || u.role === 'admin';
 
+      // Authoritative POS Terminal & Branch Scope Enforcement
+      // POS requires an explicitly assigned permitted terminal from PostgreSQL app_users / terminal registry.
+      // If terminalId, branchId, or franchiseId is missing or unassigned, fail closed immediately.
+      const resolvedTerminalId = (u.terminalId || '').trim();
+      let resolvedBranchId = (u.branchId || '').trim();
+      let resolvedFranchiseId = (u.franchiseId || '').trim();
+
+      // Strip placeholder IDs
+      if (resolvedBranchId === 'fra_primary') resolvedBranchId = '';
+      if (resolvedFranchiseId === 'fra_primary') resolvedFranchiseId = '';
+
+      if (!resolvedTerminalId) {
+        await signOut(auth).catch(() => {});
+        localStorage.removeItem('pos_session');
+        localStorage.removeItem('pos_terminal_id');
+        sessionStorage.clear();
+
+        const denialReason = 'POS access denied: No permitted terminal assigned to this account in PostgreSQL app_users / terminal registry. Contact administrator to assign a terminal.';
+        usePOSStore.setState({
+          user: null,
+          session: null,
+          isAuthChecking: false,
+          isAuthorized: false,
+          authStatus: null,
+          restrictedReason: denialReason,
+          restrictedEmail: user.email || verifiedEmail
+        });
+
+        setError(denialReason);
+        setIsLoading(false);
+        return;
+      }
+
+      if (!resolvedBranchId || !resolvedFranchiseId) {
+        await signOut(auth).catch(() => {});
+        localStorage.removeItem('pos_session');
+        localStorage.removeItem('pos_branch_id');
+        localStorage.removeItem('pos_franchise_id');
+        sessionStorage.clear();
+
+        const denialReason = 'POS access denied: No authorized franchise or branch scope assigned to this account by the backend.';
+        usePOSStore.setState({
+          user: null,
+          session: null,
+          isAuthChecking: false,
+          isAuthorized: false,
+          authStatus: null,
+          restrictedReason: denialReason,
+          restrictedEmail: user.email || verifiedEmail
+        });
+
+        setError(denialReason);
+        setIsLoading(false);
+        return;
+      }
+
+      const terminalSession = {
+        cashierUid: user.uid,
+        cashierName: u.name || user.displayName || resolvedName || 'POS Cashier',
+        email: user.email || verifiedEmail,
+        role: u.role || 'cashier',
+        terminalId: resolvedTerminalId,
+        terminalName: u.terminalName || `Terminal ${resolvedTerminalId}`,
+        branchId: resolvedBranchId,
+        branchName: u.branchName || 'Olive Pizza',
+        branchAddress: u.branchAddress || '',
+        branchPhone: u.branchPhone || '',
+        gstNumber: u.gstNumber || u.gstin || '',
+        fssaiNumber: u.fssaiNumber || '',
+        franchiseId: resolvedFranchiseId,
+        franchiseName: u.franchiseName || 'Olive Pizza',
+        organizationId: u.organizationId || 'org_olive_pizza',
+        isOwnerMode: isOwnerAccount
+      };
+
+      localStorage.setItem('pos_terminal_id', resolvedTerminalId);
+      localStorage.setItem('pos_branch_id', resolvedBranchId);
+      localStorage.setItem('pos_franchise_id', resolvedFranchiseId);
+      localStorage.setItem('pos_session', JSON.stringify(terminalSession));
+
       usePOSStore.setState({
         user,
-        session: {
-          cashierUid: user.uid,
-          cashierName: u.name || user.displayName || resolvedName || 'POS Cashier',
-          email: user.email || verifiedEmail,
-          role: u.role || 'cashier',
-          terminalId: 'POS-01',
-          terminalName: 'Main Billing Counter (POS-01)',
-          branchId: u.branchId || 'branch_rjn_main',
-          branchName: u.branchName || 'Olive Pizza — Rajnandgaon HQ',
-          franchiseId: u.franchiseId || 'fra_rajnandgaon',
-          franchiseName: 'Olive Pizza — Rajnandgaon HQ',
-          organizationId: u.organizationId || 'org_olive_pizza_hq',
-          isOwnerMode: isOwnerAccount
-        },
-        activeBranchId: u.branchId || 'branch_rjn_main',
-        activeFranchiseId: u.franchiseId || 'fra_rajnandgaon',
+        session: terminalSession,
+        activeBranchId: resolvedBranchId,
+        activeFranchiseId: resolvedFranchiseId,
         isOwner: isOwnerAccount,
         isAuthorized: true,
         isAuthChecking: false,

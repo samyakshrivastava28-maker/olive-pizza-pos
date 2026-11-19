@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePOSStore } from '../../store/posStore';
-import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { fetchPOSApi } from '../../lib/api';
 import { 
   X, 
   Search, 
@@ -31,17 +30,54 @@ export const BillHistoryDrawer: React.FC<BillHistoryDrawerProps> = ({ onReprint 
   const fetchRecentBills = async () => {
     setLoading(true);
     try {
-      const ordersRef = collection(db, 'orders');
-      const q = query(ordersRef, orderBy('createdAt', 'desc'), limit(50));
-      const snap = await getDocs(q);
+      const branchId = session?.branchId || '';
+      const franchiseId = session?.franchiseId || '';
 
-      const fetched = snap.docs.map(doc => {
-        const data = doc.data();
+      const queryParams = new URLSearchParams();
+      if (branchId) queryParams.set('branchId', branchId);
+      if (franchiseId) queryParams.set('franchiseId', franchiseId);
+      queryParams.set('limit', '50');
+
+      // Canonical order authority: Query canonical backend endpoint with branch scoping
+      let res = await fetchPOSApi(`/api/pos/orders?${queryParams.toString()}`);
+      if (!res.ok) {
+        // Fallback to /api/pos/bills, /api/pos/search, or /api/orders if endpoint aliases differ
+        res = await fetchPOSApi(`/api/pos/bills?${queryParams.toString()}`);
+        if (!res.ok) {
+          res = await fetchPOSApi(`/api/pos/search?${queryParams.toString()}`);
+          if (!res.ok) {
+            res = await fetchPOSApi(`/api/orders?${queryParams.toString()}`);
+          }
+        }
+      }
+
+      let rawOrders: any[] = [];
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          rawOrders = data;
+        } else if (Array.isArray(data.orders)) {
+          rawOrders = data.orders;
+        } else if (Array.isArray(data.bills)) {
+          rawOrders = data.bills;
+        }
+      }
+
+      const parseDate = (val: any): Date => {
+        if (!val) return new Date();
+        if (typeof val.toDate === 'function') return val.toDate();
+        if (val._seconds) return new Date(val._seconds * 1000);
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? new Date() : d;
+      };
+
+      const fetched = rawOrders.map((b: any) => {
+        const dateObj = parseDate(b.createdAt || b.created_at);
         return {
-          id: doc.id,
-          ...data,
-          formattedDate: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN'),
-          formattedTime: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+          id: b.id || b.orderId || b.order_id,
+          ...b,
+          formattedDate: dateObj.toLocaleDateString('en-IN'),
+          formattedTime: dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
         };
       });
 
@@ -112,7 +148,7 @@ export const BillHistoryDrawer: React.FC<BillHistoryDrawerProps> = ({ onReprint 
       session: {
         cashierName: b.cashierName || session?.cashierName || 'Counter Cashier',
         cashierUid: session?.cashierUid || 'cashier_uid',
-        terminalId: b.terminalId || session?.terminalId || (session?.franchiseId ? `pos_${session.franchiseId}` : ''),
+        terminalId: b.terminalId || b.terminal_id || session?.terminalId || '',
         branchId: b.branchId || session?.branchId || '',
         branchName: b.branchName || session?.branchName || 'Olive Pizza',
         franchiseId: b.franchiseId || session?.franchiseId || '',
